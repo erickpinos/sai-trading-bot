@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>sai-trade-bridge</title>
+  <style>
+    :root {
+      --bg: #0b0d10;
+      --panel: #14171c;
+      --panel-2: #1b1f26;
+      --border: #232831;
+      --text: #e6edf3;
+      --muted: #8b96a5;
+      --accent: #5bc0eb;
+      --green: #4ade80;
+      --green-bg: #14361f;
+      --red: #f87171;
+      --red-bg: #3b1818;
+      --amber: #fbbf24;
+      --amber-bg: #3b2914;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    h1 {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0;
+      letter-spacing: 0.02em;
+    }
+    h1 .dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted); margin-right: 8px; vertical-align: middle;
+    }
+    h1 .dot.live { background: var(--green); }
+    h1 .dot.dry { background: var(--amber); }
+    h1 .dot.killed { background: var(--red); }
+    .meta { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+    .meta b { color: var(--text); }
+    .header-actions { display: flex; align-items: center; gap: 8px; }
+    .btn {
+      background: var(--panel); border: 1px solid var(--border); color: var(--text);
+      padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+      font-family: var(--mono);
+    }
+    .btn:hover { background: var(--panel-2); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn.engaged { background: var(--red-bg); border-color: #5a2424; color: var(--red); }
+    .btn.dry-on { background: var(--amber-bg); border-color: #5a4124; color: var(--amber); }
+    .btn.green { background: var(--green-bg); border-color: #1f5a2f; color: var(--green); }
+    .btn.red { background: var(--red-bg); border-color: #5a2424; color: var(--red); }
+    .btn.sm { padding: 3px 8px; font-size: 11px; }
+
+    main {
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      max-width: 1500px;
+      margin: 0 auto;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .panel.full { grid-column: 1 / -1; }
+    .panel.span2 { grid-column: span 2; }
+    .panel-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-bottom: 10px;
+    }
+    .panel h2 {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--muted); margin: 0;
+    }
+    .stat { font-family: var(--mono); }
+    .stat .val { font-size: 22px; font-weight: 600; }
+    .stat .label { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+    table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+    th {
+      text-align: left; color: var(--muted); font-weight: 500;
+      padding: 6px 10px 6px 0; border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 8px 10px 8px 0; border-bottom: 1px solid var(--border);
+      vertical-align: middle; white-space: nowrap;
+    }
+    td.wrap { white-space: normal; word-break: break-word; }
+    tr:last-child td { border-bottom: none; }
+
+    .pill {
+      display: inline-block; padding: 1px 6px; border-radius: 4px;
+      font-size: 11px; font-weight: 500;
+    }
+    .pill.long { background: var(--green-bg); color: var(--green); }
+    .pill.short { background: var(--red-bg); color: var(--red); }
+    .pill.broadcast { background: var(--green-bg); color: var(--green); }
+    .pill.dry-run { background: var(--amber-bg); color: var(--amber); }
+    .pill.error { background: var(--red-bg); color: var(--red); }
+    .pill.blocked { background: #2a2a2a; color: var(--muted); }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .warn {
+      background: var(--amber-bg); border: 1px solid #4a3a1a; color: var(--amber);
+      padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-bottom: 12px;
+    }
+    .empty { color: var(--muted); font-family: var(--mono); padding: 8px 0; font-size: 12px; }
+    .footer {
+      padding: 12px 24px; text-align: center; color: var(--muted);
+      font-size: 11px; font-family: var(--mono);
+    }
+
+    /* Trade form */
+    .form { display: flex; flex-direction: column; gap: 10px; font-family: var(--mono); font-size: 12px; }
+    .form-row { display: flex; gap: 8px; align-items: center; }
+    .form-row label { color: var(--muted); min-width: 64px; }
+    .form-row input, .form-row select {
+      flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      padding: 6px 8px; border-radius: 4px; font-family: var(--mono); font-size: 12px;
+    }
+    .form-row input:focus, .form-row select:focus { outline: none; border-color: var(--accent); }
+    .seg { display: flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; flex: 1; }
+    .seg button {
+      flex: 1; background: var(--bg); border: none; color: var(--muted);
+      padding: 6px 8px; cursor: pointer; font-family: var(--mono); font-size: 12px;
+    }
+    .seg button.active.long { background: var(--green-bg); color: var(--green); }
+    .seg button.active.short { background: var(--red-bg); color: var(--red); }
+    .fire-row { display: flex; gap: 8px; margin-top: 4px; }
+    .fire-row .btn { flex: 1; padding: 9px 12px; font-size: 12px; font-weight: 600; }
+
+    /* Helpers (TradingView, MCP) */
+    details {
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0; margin-top: 10px;
+    }
+    details summary {
+      cursor: pointer; padding: 10px 12px; font-size: 12px;
+      color: var(--muted); font-family: var(--mono);
+      list-style: none; user-select: none;
+    }
+    details summary::-webkit-details-marker { display: none; }
+    details summary::before { content: "▸ "; }
+    details[open] summary::before { content: "▾ "; }
+    details[open] summary { border-bottom: 1px solid var(--border); }
+    .helper-body { padding: 12px; font-size: 12px; }
+    .helper-body p { margin: 0 0 8px; color: var(--muted); }
+    .code-block {
+      position: relative; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 4px; padding: 10px 12px; padding-right: 70px;
+      font-family: var(--mono); font-size: 11px; color: var(--text);
+      white-space: pre-wrap; word-break: break-all; margin: 6px 0;
+    }
+    .code-block .copy-btn {
+      position: absolute; top: 6px; right: 6px;
+      background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+      padding: 2px 8px; border-radius: 3px; font-size: 10px; cursor: pointer;
+      font-family: var(--mono);
+    }
+    .code-block .copy-btn:hover { color: var(--text); }
+    .code-block .copy-btn.ok { color: var(--green); border-color: #1f5a2f; }
+
+    .result-toast {
+      margin-top: 8px; padding: 8px 10px; border-radius: 4px;
+      font-family: var(--mono); font-size: 11px;
+    }
+    .result-toast.ok { background: var(--green-bg); color: var(--green); }
+    .result-toast.err { background: var(--red-bg); color: var(--red); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>
+      <span id="modeDot" class="dot"></span>
+      sai-trade-bridge
+    </h1>
+    <span class="meta" id="meta">loading…</span>
+    <div class="header-actions">
+      <button class="btn" id="dryBtn" type="button" title="toggle dry-run">dry-run</button>
+      <button class="btn" id="killBtn" type="button">kill switch</button>
+      <button class="btn" id="logoutBtn" type="button" title="forget cached secret">lock</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Row 1: balance | open positions | quick trade -->
+    <section class="panel">
+      <div class="panel-head"><h2>USDC balance</h2></div>
+      <div class="stat">
+        <div class="val" id="balance">—</div>
+        <div class="label" id="balanceLabel">on this wallet</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Open positions</h2></div>
+      <div id="positionsWrap"><div class="empty">loading…</div></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Quick trade</h2></div>
+      <div class="form">
+        <div class="form-row">
+          <label>market</label>
+          <select id="marketSel"><option value="">loading…</option></select>
+        </div>
+        <div class="form-row">
+          <label>side</label>
+          <div class="seg" id="sideSeg">
+            <button type="button" data-side="long" class="active long">LONG</button>
+            <button type="button" data-side="short">SHORT</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>leverage</label>
+          <input id="levInp" type="number" min="1" step="1" value="2" />
+        </div>
+        <div class="form-row">
+          <label>collateral</label>
+          <input id="amtInp" type="number" min="0.01" step="0.01" value="5" /> <span class="meta">USDC</span>
+        </div>
+        <div class="form-row">
+          <label>slippage</label>
+          <input id="slpInp" type="number" min="0.1" step="0.1" value="1" /> <span class="meta">%</span>
+        </div>
+        <div class="fire-row">
+          <button class="btn green" id="fireBtn" type="button">fire trade</button>
+        </div>
+        <div id="tradeResult"></div>
+      </div>
+    </section>
+
+    <!-- Row 2: TradingView + MCP setup helpers (full width) -->
+    <section class="panel full">
+      <div class="panel-head"><h2>Setup helpers</h2></div>
+
+      <details>
+        <summary>TradingView webhook setup — show URL + JSON templates</summary>
+        <div class="helper-body">
+          <p>In your TradingView alert: set the webhook URL below, then paste one of the JSON templates into the alert message body.</p>
+          <p>Webhook URL:</p>
+          <div class="code-block" id="tvUrl" data-copy>—</div>
+          <p>Open LONG template (replace marketId/leverage/amount):</p>
+          <div class="code-block" id="tvOpenLong" data-copy>—</div>
+          <p>Open SHORT template:</p>
+          <div class="code-block" id="tvOpenShort" data-copy>—</div>
+          <p>Close by market + side (auto-resolves trade index):</p>
+          <div class="code-block" id="tvClose" data-copy>—</div>
+          <p>Close by exact userTradeIndex:</p>
+          <div class="code-block" id="tvCloseByIndex" data-copy>—</div>
+        </div>
+      </details>
+
+      <details>
+        <summary>MCP setup (Claude Desktop / Claude Code) — show config snippet</summary>
+        <div class="helper-body">
+          <p>Add this to your MCP servers config so Claude can fire trades via tool calls:</p>
+          <div class="code-block" id="mcpJson" data-copy>—</div>
+          <p>Then ask Claude things like: <em>"list_markets"</em>, <em>"open a 2x BTC long with $5 USDC"</em>, <em>"close my SOL short"</em>.</p>
+        </div>
+      </details>
+    </section>
+
+    <!-- Row 3: Recent activity -->
+    <section class="panel full">
+      <div class="panel-head">
+        <h2>Recent activity (last 50)</h2>
+        <button class="btn sm" id="clearBtn" type="button">clear log</button>
+      </div>
+      <div id="eventsWrap"><div class="empty">loading…</div></div>
+    </section>
+  </main>
+
+  <div class="footer" id="footer">—</div>
+
+  <script>
+    const fmt = {
+      time: (ts) => {
+        const d = new Date(ts)
+        const p = (n) => String(n).padStart(2, "0")
+        return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds())
+      },
+      addr: (a) => a ? a.slice(0, 6) + "…" + a.slice(-4) : "—",
+      num: (n, d = 4) => typeof n === "number" ? n.toFixed(d) : "—",
+    }
+
+    let state = null
+    let side = "long"
+    const SECRET_KEY = "saitb_secret_v1"
+
+    function getSecret() { return sessionStorage.getItem(SECRET_KEY) || "" }
+    function setSecret(s) { sessionStorage.setItem(SECRET_KEY, s) }
+    function forgetSecret() { sessionStorage.removeItem(SECRET_KEY) }
+
+    function ensureSecret(reason) {
+      let s = getSecret()
+      if (s) return s
+      s = prompt((reason || "Authorize") + "\nEnter your WEBHOOK_SECRET (cached for this tab only):")
+      if (!s) return null
+      setSecret(s)
+      return s
+    }
+
+    async function auth(path, body) {
+      const s = ensureSecret("Authorize action")
+      if (!s) return { error: "no_secret" }
+      const r = await fetch(path, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-secret": s },
+        body: JSON.stringify(body || {}),
+      })
+      const json = await r.json().catch(() => ({}))
+      if (r.status === 403) {
+        forgetSecret()
+        alert("Bad secret — please re-enter.")
+      }
+      return { ok: r.ok, status: r.status, json }
+    }
+
+    async function fetchState() {
+      try {
+        const r = await fetch("/api/state", { cache: "no-store" })
+        if (!r.ok) throw new Error("HTTP " + r.status)
+        state = await r.json()
+        render(state)
+      } catch (e) {
+        document.getElementById("footer").textContent = "fetch error: " + e.message
+      }
+    }
+
+    async function fetchMarkets() {
+      const sel = document.getElementById("marketSel")
+      try {
+        const r = await fetch("/api/markets", { cache: "no-store" })
+        const j = await r.json()
+        const ms = j.markets || []
+        const cur = sel.value
+        sel.innerHTML = ""
+        if (ms.length === 0) {
+          sel.innerHTML = '<option value="">no open markets</option>'
+          return
+        }
+        for (const m of ms) {
+          const opt = document.createElement("option")
+          opt.value = String(m.marketId)
+          opt.textContent = m.base + "/" + m.quote + "  (" + m.marketId + ")  @ " + m.price
+          sel.appendChild(opt)
+        }
+        if (cur) sel.value = cur
+      } catch (e) {
+        sel.innerHTML = '<option value="">error loading markets</option>'
+      }
+    }
+
+    function render(s) {
+      // header
+      const dot = document.getElementById("modeDot")
+      dot.classList.remove("live", "dry", "killed")
+      if (s.killSwitch) dot.classList.add("killed")
+      else if (s.dryRun) dot.classList.add("dry")
+      else dot.classList.add("live")
+
+      const mode = s.killSwitch ? "KILLED" : s.dryRun ? "DRY-RUN" : "LIVE"
+      document.getElementById("meta").innerHTML =
+        "<b>" + s.chain + "</b> · " + mode + " · wallet <b>" + fmt.addr(s.wallet) + "</b>"
+
+      // header buttons
+      const killBtn = document.getElementById("killBtn")
+      killBtn.classList.toggle("engaged", !!s.killSwitch)
+      killBtn.textContent = s.killSwitch ? "kill engaged — release" : "engage kill switch"
+
+      const dryBtn = document.getElementById("dryBtn")
+      dryBtn.classList.toggle("dry-on", !!s.dryRun)
+      dryBtn.textContent = s.dryRun ? "dry-run: on" : "dry-run: off"
+
+      // balance
+      const balEl = document.getElementById("balance")
+      const isErr = typeof s.usdcBalance === "string" && s.usdcBalance.startsWith("error:")
+      balEl.textContent = isErr ? "—" : (Number(s.usdcBalance).toFixed(2) + " USDC")
+      document.getElementById("balanceLabel").textContent = fmt.addr(s.wallet)
+
+      // positions
+      const pw = document.getElementById("positionsWrap")
+      let html = ""
+      if (s.positionsWarning) html += '<div class="warn">' + escapeHtml(s.positionsWarning) + "</div>"
+      if (!s.positions || s.positions.length === 0) {
+        html += '<div class="empty">no open positions</div>'
+      } else {
+        html += "<table><thead><tr>"
+        html += "<th>idx</th><th>market</th><th>side</th><th>lev</th>"
+        html += "<th>coll</th><th>entry</th><th></th>"
+        html += "</tr></thead><tbody>"
+        for (const p of s.positions) {
+          const pair = p.base && p.quote ? (p.base + "/" + p.quote) : ("m" + p.marketId)
+          html += "<tr>"
+          html += "<td>" + p.id + "</td>"
+          html += "<td>" + pair + "</td>"
+          html += '<td><span class="pill ' + (p.long ? "long" : "short") + '">' + (p.long ? "LONG" : "SHORT") + "</span></td>"
+          html += "<td>" + p.leverage + "x</td>"
+          html += "<td>" + fmt.num(p.collateralUsdc, 2) + "</td>"
+          html += "<td>" + fmt.num(p.openPrice, 4) + "</td>"
+          html += '<td><button class="btn sm red" data-close="' + p.id + '">close</button></td>'
+          html += "</tr>"
+        }
+        html += "</tbody></table>"
+      }
+      pw.innerHTML = html
+
+      // events
+      const ew = document.getElementById("eventsWrap")
+      if (!s.events || s.events.length === 0) {
+        ew.innerHTML = '<div class="empty">no activity yet — fire a trade, webhook, or MCP call</div>'
+      } else {
+        let h = "<table><thead><tr>"
+        h += "<th>time</th><th>src</th><th>action</th><th>market</th><th>size</th>"
+        h += "<th>status</th><th>tx / msg</th><th>dur</th>"
+        h += "</tr></thead><tbody>"
+        for (const e of s.events) {
+          const side = e.action === "open_long" ? "LONG" : e.action === "open_short" ? "SHORT" : e.action === "close" ? "CLOSE" : e.action.toUpperCase()
+          const sidePill = e.action === "open_long" ? "long" : e.action === "open_short" ? "short" : ""
+          const market = e.base && e.quote ? (e.base + "/" + e.quote) : e.marketId !== undefined ? ("m" + e.marketId) : "—"
+          const size = e.amountUsdc ? (e.amountUsdc + " USDC " + (e.leverage ? e.leverage + "x" : "")) : "—"
+          const txOrMsg = e.txHash
+            ? '<a href="' + (e.explorer || "#") + '" target="_blank">' + e.txHash.slice(0, 10) + "…</a>"
+            : '<span style="color:var(--muted)">' + escapeHtml((e.message || "").slice(0, 100)) + "</span>"
+          h += "<tr>"
+          h += "<td>" + fmt.time(e.ts) + "</td>"
+          h += "<td>" + e.source + "</td>"
+          h += '<td>' + (sidePill ? '<span class="pill ' + sidePill + '">' + side + "</span>" : side) + "</td>"
+          h += "<td>" + market + "</td>"
+          h += "<td>" + size + "</td>"
+          h += '<td><span class="pill ' + e.status + '">' + e.status + "</span></td>"
+          h += '<td class="wrap">' + txOrMsg + "</td>"
+          h += "<td>" + (e.durationMs !== undefined ? e.durationMs + "ms" : "—") + "</td>"
+          h += "</tr>"
+        }
+        h += "</tbody></table>"
+        ew.innerHTML = h
+      }
+
+      // helpers — fill code blocks
+      const url = s.webhookUrl || "(unknown)"
+      setCode("tvUrl", url)
+      setCode("tvOpenLong", JSON.stringify({
+        secret: "<YOUR_WEBHOOK_SECRET>", action: "open_long",
+        marketId: 1, leverage: 2, amountUsdc: "5", slippagePct: "1",
+      }, null, 2))
+      setCode("tvOpenShort", JSON.stringify({
+        secret: "<YOUR_WEBHOOK_SECRET>", action: "open_short",
+        marketId: 1, leverage: 2, amountUsdc: "5", slippagePct: "1",
+      }, null, 2))
+      setCode("tvClose", JSON.stringify({
+        secret: "<YOUR_WEBHOOK_SECRET>", action: "close",
+        marketId: 1, long: true,
+      }, null, 2))
+      setCode("tvCloseByIndex", JSON.stringify({
+        secret: "<YOUR_WEBHOOK_SECRET>", action: "close",
+        userTradeIndex: 42,
+      }, null, 2))
+      setCode("mcpJson", JSON.stringify({
+        mcpServers: {
+          sai: {
+            command: "npx",
+            args: ["tsx", "<absolute path to>/sai-trade-bridge/src/mcp.ts"],
+          },
+        },
+      }, null, 2))
+
+      document.getElementById("footer").textContent =
+        "updated " + fmt.time(Date.now()) + " · polling every 5s · " + s.wallet
+    }
+
+    function setCode(id, text) {
+      const el = document.getElementById(id)
+      if (!el) return
+      el.innerHTML = ""
+      el.appendChild(document.createTextNode(text))
+      const btn = document.createElement("button")
+      btn.className = "copy-btn"
+      btn.textContent = "copy"
+      btn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(text)
+          btn.textContent = "copied"
+          btn.classList.add("ok")
+          setTimeout(() => { btn.textContent = "copy"; btn.classList.remove("ok") }, 1200)
+        } catch {
+          btn.textContent = "fail"
+        }
+      })
+      el.appendChild(btn)
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;",
+      }[c]))
+    }
+
+    function showResult(elId, ok, msg) {
+      const el = document.getElementById(elId)
+      el.innerHTML = '<div class="result-toast ' + (ok ? "ok" : "err") + '">' + escapeHtml(msg) + "</div>"
+      setTimeout(() => { el.innerHTML = "" }, 6000)
+    }
+
+    // --- handlers ---
+
+    document.getElementById("killBtn").addEventListener("click", async () => {
+      if (!state) return
+      const desired = !state.killSwitch
+      const res = await auth("/api/kill", { engaged: desired })
+      if (res.ok) fetchState()
+    })
+
+    document.getElementById("dryBtn").addEventListener("click", async () => {
+      if (!state) return
+      const desired = !state.dryRun
+      const res = await auth("/api/dry-run", { enabled: desired })
+      if (res.ok) fetchState()
+    })
+
+    document.getElementById("logoutBtn").addEventListener("click", () => {
+      forgetSecret()
+      alert("Secret cleared. You'll be prompted again on next action.")
+    })
+
+    document.getElementById("clearBtn").addEventListener("click", async () => {
+      const res = await auth("/api/clear-events", {})
+      if (res.ok) fetchState()
+    })
+
+    document.getElementById("sideSeg").addEventListener("click", (e) => {
+      const target = e.target
+      if (!(target instanceof HTMLButtonElement)) return
+      const s = target.dataset.side
+      if (!s) return
+      side = s
+      for (const b of document.querySelectorAll("#sideSeg button")) {
+        b.classList.toggle("active", b.dataset.side === side)
+        b.classList.toggle("long", b.dataset.side === "long")
+        b.classList.toggle("short", b.dataset.side === "short")
+      }
+    })
+
+    document.getElementById("fireBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("fireBtn")
+      const marketId = Number(document.getElementById("marketSel").value)
+      if (Number.isNaN(marketId)) {
+        showResult("tradeResult", false, "select a market first")
+        return
+      }
+      const leverage = Number(document.getElementById("levInp").value)
+      const amountUsdc = document.getElementById("amtInp").value
+      const slippagePct = document.getElementById("slpInp").value
+      btn.disabled = true
+      btn.textContent = "firing…"
+      try {
+        const res = await auth("/api/open", {
+          long: side === "long", marketId, leverage, amountUsdc, slippagePct,
+        })
+        if (res.ok) {
+          showResult("tradeResult", true, res.json.message || "ok")
+        } else {
+          showResult("tradeResult", false, res.json.message || res.json.error || ("HTTP " + res.status))
+        }
+        fetchState()
+      } catch (e) {
+        showResult("tradeResult", false, e.message)
+      } finally {
+        btn.disabled = false
+        btn.textContent = "fire trade"
+      }
+    })
+
+    // delegated handler for per-position close buttons
+    document.getElementById("positionsWrap").addEventListener("click", async (e) => {
+      const t = e.target
+      if (!(t instanceof HTMLButtonElement)) return
+      const idx = t.dataset.close
+      if (!idx) return
+      if (!confirm("Close trade index " + idx + "?")) return
+      t.disabled = true
+      t.textContent = "closing…"
+      const res = await auth("/api/close", { userTradeIndex: Number(idx) })
+      if (!res.ok) {
+        alert("Close failed: " + (res.json.message || res.json.error || res.status))
+        t.disabled = false
+        t.textContent = "close"
+      }
+      fetchState()
+    })
+
+    fetchState()
+    fetchMarkets()
+    setInterval(fetchState, 5000)
+    setInterval(fetchMarkets, 60000)
+  </script>
+</body>
+</html>

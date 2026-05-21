@@ -1,0 +1,27 @@
+{
+  "name": "sai-trade-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TradingView + MCP -> sai.fun (Nibiru perps) bridge. Webhook receiver and MCP server that signs and submits perp trades against the Sai EVM interface.",
+  "type": "commonjs",
+  "scripts": {
+    "webhook": "tsx src/webhook.ts",
+    "webhook:dry": "DRY_RUN=true tsx src/webhook.ts",
+    "mcp": "tsx src/mcp.ts",
+    "trade:open": "tsx src/cli-open.ts",
+    "trade:close": "tsx src/cli-close.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "ethers": "^6.13.0",
+    "express": "^4.21.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
