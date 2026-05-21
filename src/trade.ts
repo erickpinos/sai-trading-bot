@@ -31,10 +31,21 @@ export type TradeResult = {
   message: string
 }
 
+export type TradeOpts = {
+  dryRun?: boolean
+  explorer?: (h: string) => string
+  // When false, return immediately after broadcast without waiting for receipt.
+  // Use for latency-sensitive callers (e.g. TradingView webhook — 3s timeout).
+  awaitReceipt?: boolean
+  // Fired right after broadcast when awaitReceipt is false. Caller can hook
+  // tx.wait() on this to log confirmation/revert asynchronously.
+  onTxBroadcast?: (tx: ethers.ContractTransactionResponse) => void
+}
+
 export async function openTrade(
   ctx: SignerCtx,
   args: OpenTradeArgs,
-  opts: { dryRun?: boolean; explorer?: (h: string) => string } = {},
+  opts: TradeOpts = {},
 ): Promise<TradeResult> {
   const { provider, wallet, cfg } = ctx
   const borrowing = await fetchBorrowing(cfg.saiKeeperEndpoint, args.marketId, cfg.usdcTokenIndex)
@@ -109,12 +120,8 @@ export async function openTrade(
     amount,
     { gasLimit, gasPrice: 0n },
   )
-  const receipt = await tx.wait()
-  if (receipt?.status !== 1) {
-    throw new Error(`openTrade reverted (tx=${tx.hash})`)
-  }
 
-  return {
+  const result: TradeResult = {
     status: "broadcast",
     txHash: tx.hash,
     explorer: opts.explorer?.(tx.hash),
@@ -124,6 +131,17 @@ export async function openTrade(
     openPrice: borrowing.price,
     message: `openTrade ${args.long ? "LONG" : "SHORT"} ${base}/${quote} broadcast: ${tx.hash}`,
   }
+
+  if (opts.awaitReceipt === false) {
+    opts.onTxBroadcast?.(tx)
+    return result
+  }
+
+  const receipt = await tx.wait()
+  if (receipt?.status !== 1) {
+    throw new Error(`openTrade reverted (tx=${tx.hash})`)
+  }
+  return result
   // Suppress unused-warning for provider when tree-shaken; we only need it
   // attached to the wallet to actually broadcast.
   void provider
@@ -136,7 +154,7 @@ export type CloseTradeArgs =
 export async function closeTrade(
   ctx: SignerCtx,
   args: CloseTradeArgs,
-  opts: { dryRun?: boolean; explorer?: (h: string) => string } = {},
+  opts: TradeOpts = {},
 ): Promise<TradeResult> {
   const { wallet, cfg } = ctx
 
@@ -182,12 +200,8 @@ export async function closeTrade(
   }
 
   const tx = await closeFn(wasmMsgBytes, { gasLimit, gasPrice: 0n })
-  const receipt = await tx.wait()
-  if (receipt?.status !== 1) {
-    throw new Error(`closeTrade reverted (tx=${tx.hash})`)
-  }
 
-  return {
+  const result: TradeResult = {
     status: "broadcast",
     txHash: tx.hash,
     explorer: opts.explorer?.(tx.hash),
@@ -196,4 +210,15 @@ export async function closeTrade(
     quote: "?",
     message: `closeTrade userTradeIndex=${userTradeIndex} broadcast: ${tx.hash}`,
   }
+
+  if (opts.awaitReceipt === false) {
+    opts.onTxBroadcast?.(tx)
+    return result
+  }
+
+  const receipt = await tx.wait()
+  if (receipt?.status !== 1) {
+    throw new Error(`closeTrade reverted (tx=${tx.hash})`)
+  }
+  return result
 }

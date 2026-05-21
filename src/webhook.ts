@@ -32,6 +32,7 @@ import {
   isDryRun,
   setDryRun,
   initDryRun,
+  initEventLog,
 } from "./events"
 import { getUsdcBalance, getOpenPositions } from "./positions"
 import { listMarkets, type MarketSummary } from "./sai-keeper"
@@ -63,10 +64,35 @@ const CloseByMarketWebhookSchema = z.object({
   long: z.boolean(),
 })
 
+// TradingView strategy alert — accepts raw {{strategy.order.action}} and
+// {{strategy.market_position}} placeholders and translates to open/close.
+// Trim+lowercase before validating so whitespace and case from TV templates
+// don't fail us.
+const StrategyWebhookSchema = z.object({
+  secret: z.string().min(1),
+  action: z.literal("strategy"),
+  marketId: z.number().int().nonnegative(),
+  leverage: z.union([z.number(), z.string()]),
+  amountUsdc: z.union([z.number(), z.string()]).transform((v) => String(v)),
+  slippagePct: z
+    .union([z.number(), z.string()])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : String(v))),
+  orderAction: z
+    .string()
+    .transform((s) => s.trim().toLowerCase())
+    .pipe(z.enum(["buy", "sell"])),
+  marketPosition: z
+    .string()
+    .transform((s) => s.trim().toLowerCase())
+    .pipe(z.enum(["long", "short", "flat"])),
+})
+
 const WebhookSchema = z.union([
   OpenWebhookSchema,
   CloseByIndexWebhookSchema,
   CloseByMarketWebhookSchema,
+  StrategyWebhookSchema,
 ])
 
 const UiOpenSchema = z.object({
@@ -96,6 +122,7 @@ async function main() {
   const app = loadConfig({ requireSecret: true })
   const signer = buildSigner(app)
   initDryRun(app.dryRun)
+  initEventLog(resolve(process.cwd(), "events.jsonl"))
 
   console.log(`[boot] chain=${app.chain} wallet=${signer.wallet.address}`)
   console.log(`[boot] evmInterface=${app.cfg.evmInterface} dryRun=${app.dryRun}`)
@@ -119,6 +146,43 @@ async function main() {
 
   function tradeOpts() {
     return { dryRun: isDryRun(), explorer: app.cfg.explorerTx }
+  }
+
+  // Webhook callers (TradingView) have ~3s timeout — too short to wait for
+  // tx receipt on mainnet. Respond after broadcast, log receipt async.
+  function webhookTradeOpts(action: string, marketId: number | undefined) {
+    return {
+      ...tradeOpts(),
+      awaitReceipt: false as const,
+      onTxBroadcast: (tx: { hash: string; wait: () => Promise<{ status?: number | null } | null> }) => {
+        tx.wait()
+          .then((r) => {
+            const reverted = r?.status !== 1
+            recordEvent({
+              source: "webhook",
+              action: "confirm",
+              marketId,
+              status: reverted ? "error" : "broadcast",
+              txHash: tx.hash,
+              explorer: app.cfg.explorerTx(tx.hash),
+              message: reverted
+                ? `tx ${tx.hash} reverted on-chain (${action})`
+                : `tx ${tx.hash} confirmed (${action})`,
+            })
+          })
+          .catch((err: Error) => {
+            recordEvent({
+              source: "webhook",
+              action: "confirm",
+              marketId,
+              status: "error",
+              txHash: tx.hash,
+              explorer: app.cfg.explorerTx(tx.hash),
+              message: `tx ${tx.hash} receipt error: ${err.message}`,
+            })
+          })
+      },
+    }
   }
 
   const server = express()
@@ -168,7 +232,7 @@ async function main() {
             amountUsdc: body.amountUsdc,
             slippagePct: body.slippagePct ?? app.defaultSlippagePct,
           },
-          tradeOpts(),
+          webhookTradeOpts(body.action, body.marketId),
         )
         recordEvent({
           source: "webhook",
@@ -192,7 +256,11 @@ async function main() {
           "userTradeIndex" in body
             ? { userTradeIndex: body.userTradeIndex }
             : { marketId: body.marketId, long: body.long }
-        const result = await closeTrade(signer, args, tradeOpts())
+        const result = await closeTrade(
+          signer,
+          args,
+          webhookTradeOpts("close", "marketId" in body ? body.marketId : undefined),
+        )
         recordEvent({
           source: "webhook",
           action: "close",
@@ -204,6 +272,82 @@ async function main() {
           durationMs: Date.now() - startedAt,
         })
         return res.json(result)
+      }
+
+      if (body.action === "strategy") {
+        // Translate (orderAction, marketPosition) → open_long | open_short | close.
+        // See README for the truth table; reversals (sell+short, buy+long
+        // while opposite was open) are treated as a fresh entry — operator
+        // is expected to close manually or wire a separate close alert.
+        const oa = body.orderAction
+        const mp = body.marketPosition
+        let translated: "open_long" | "open_short" | "close"
+        let closeLong: boolean | null = null
+        if (oa === "buy" && mp === "long") translated = "open_long"
+        else if (oa === "sell" && mp === "short") translated = "open_short"
+        else if (oa === "sell" && mp === "flat") { translated = "close"; closeLong = true }
+        else if (oa === "buy" && mp === "flat") { translated = "close"; closeLong = false }
+        else {
+          recordEvent({
+            source: "webhook",
+            action: "rejected",
+            marketId: body.marketId,
+            status: "error",
+            message: `strategy fill ambiguous: orderAction=${oa} marketPosition=${mp}`,
+            durationMs: Date.now() - startedAt,
+          })
+          return res.status(400).json({
+            error: "ambiguous_strategy_fill",
+            orderAction: oa,
+            marketPosition: mp,
+          })
+        }
+
+        if (translated === "close") {
+          const result = await closeTrade(
+            signer,
+            { marketId: body.marketId, long: closeLong as boolean },
+            webhookTradeOpts("close", body.marketId),
+          )
+          recordEvent({
+            source: "webhook",
+            action: "close",
+            marketId: body.marketId,
+            status: result.status,
+            txHash: result.txHash,
+            explorer: result.explorer,
+            message: `[strategy ${oa}/${mp}] ${result.message}`,
+            durationMs: Date.now() - startedAt,
+          })
+          return res.json({ ...result, translatedFrom: { orderAction: oa, marketPosition: mp } })
+        }
+
+        const result = await openTrade(
+          signer,
+          {
+            marketId: body.marketId,
+            long: translated === "open_long",
+            leverage: body.leverage,
+            amountUsdc: body.amountUsdc,
+            slippagePct: body.slippagePct ?? app.defaultSlippagePct,
+          },
+          webhookTradeOpts(translated, body.marketId),
+        )
+        recordEvent({
+          source: "webhook",
+          action: translated,
+          marketId: result.marketId,
+          base: result.base,
+          quote: result.quote,
+          leverage: body.leverage,
+          amountUsdc: body.amountUsdc,
+          status: result.status,
+          txHash: result.txHash,
+          explorer: result.explorer,
+          message: `[strategy ${oa}/${mp}] ${result.message}`,
+          durationMs: Date.now() - startedAt,
+        })
+        return res.json({ ...result, translatedFrom: { orderAction: oa, marketPosition: mp } })
       }
 
       return res.status(400).json({ error: "unknown_action" })
@@ -250,7 +394,7 @@ async function main() {
         chain: app.chain,
         wallet: signer.wallet.address,
         evmInterface: app.cfg.evmInterface,
-        webhookUrl: `http://${app.bind}:${app.port}/webhook`,
+        webhookUrl: app.publicWebhookUrl ?? `http://${app.bind}:${app.port}/webhook`,
         dryRun: isDryRun(),
         killSwitch: isKilled(),
         usdcBalance: balance,

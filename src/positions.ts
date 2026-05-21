@@ -8,6 +8,7 @@
 import { ethers } from "ethers"
 import { USDC_DECIMALS } from "./config"
 import type { SignerCtx } from "./wallet"
+import { evmToBech32 } from "./bech32"
 
 const ERC20_ABI = ["function balanceOf(address) view returns (uint256)"]
 
@@ -27,8 +28,13 @@ export type OpenPosition = {
   leverage: number
   collateralUsdc: number
   openPrice: number
+  markPrice: number | null // current oracle price (from market borrowing)
+  pnlUsdc: number | null // after-fees PnL in USDC (what you'd realize closing now)
+  pnlPct: number | null // PnL as % of collateral
+  liquidationPrice: number | null
   tp: number | null
   sl: number | null
+  openedAt: string | null // ISO 8601 from openBlock.block_ts
 }
 
 type RawPerpTrade = {
@@ -39,6 +45,12 @@ type RawPerpTrade = {
   openPrice: number
   tp: number | null
   sl: number | null
+  state: {
+    pnlCollateralAfterFees: number | null
+    pnlPct: number | null
+    liquidationPrice: number | null
+  } | null
+  openBlock: { block_ts: string } | null
   perpBorrowing: {
     marketId: number
     baseToken: { symbol: string | null; name: string }
@@ -69,6 +81,12 @@ const OPEN_TRADES_QUERY = `query OpenTrades($trader: String!) {
       openPrice
       tp
       sl
+      state {
+        pnlCollateralAfterFees
+        pnlPct
+        liquidationPrice
+      }
+      openBlock { block_ts }
       perpBorrowing {
         marketId
         baseToken { symbol name }
@@ -86,21 +104,38 @@ export async function getOpenPositions(ctx: SignerCtx): Promise<{
     const data = await gql<{ perp: { trades: RawPerpTrade[] } | null }>(
       ctx.cfg.saiKeeperEndpoint,
       OPEN_TRADES_QUERY,
-      { trader: ctx.wallet.address.toLowerCase() },
+      { trader: evmToBech32(ctx.wallet.address) },
     )
     const raw = data.perp?.trades ?? []
-    const positions: OpenPosition[] = raw.map((t) => ({
-      id: t.id,
-      marketId: t.perpBorrowing.marketId,
-      base: t.perpBorrowing.baseToken.symbol ?? t.perpBorrowing.baseToken.name,
-      quote: t.perpBorrowing.quoteToken.symbol ?? t.perpBorrowing.quoteToken.name,
-      long: t.isLong,
-      leverage: t.leverage,
-      collateralUsdc: t.collateralAmount / 10 ** USDC_DECIMALS,
-      openPrice: t.openPrice,
-      tp: t.tp,
-      sl: t.sl,
-    }))
+    const SCALE = 10 ** USDC_DECIMALS
+    const positions: OpenPosition[] = raw.map((t) => {
+      // Sai keeper conventions: pnlCollateral* is in micro-collateral (1e6),
+      // pnlPct is a fraction (0.05 = 5%), liquidationPrice is human units.
+      const pnlPctFraction = t.state?.pnlPct ?? null
+      const markPrice =
+        pnlPctFraction !== null && t.leverage > 0
+          ? t.openPrice * (1 + ((t.isLong ? 1 : -1) * pnlPctFraction) / t.leverage)
+          : null
+      return {
+        id: t.id,
+        marketId: t.perpBorrowing.marketId,
+        base: t.perpBorrowing.baseToken.symbol ?? t.perpBorrowing.baseToken.name,
+        quote: t.perpBorrowing.quoteToken.symbol ?? t.perpBorrowing.quoteToken.name,
+        long: t.isLong,
+        leverage: t.leverage,
+        collateralUsdc: t.collateralAmount / SCALE,
+        openPrice: t.openPrice,
+        markPrice,
+        pnlUsdc: t.state?.pnlCollateralAfterFees != null
+          ? t.state.pnlCollateralAfterFees / SCALE
+          : null,
+        pnlPct: pnlPctFraction !== null ? pnlPctFraction * 100 : null,
+        liquidationPrice: t.state?.liquidationPrice ?? null,
+        tp: t.tp,
+        sl: t.sl,
+        openedAt: t.openBlock?.block_ts ?? null,
+      }
+    })
     return { positions }
   } catch (e) {
     return {

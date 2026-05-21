@@ -125,6 +125,9 @@
     .pill.blocked { background: #2a2a2a; color: var(--muted); }
     .pill.idle { background: #20232a; color: var(--dim); }
     .pill.active { background: var(--green-bg); color: var(--green); }
+    .pnl-pos { color: var(--green); }
+    .pnl-neg { color: var(--red); }
+    .pnl-zero { color: var(--muted); }
 
     table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11.5px; }
     th { text-align: left; color: var(--muted); font-weight: 500; padding: 5px 8px 5px 0; border-bottom: 1px solid var(--border); }
@@ -197,6 +200,22 @@
     details[open] summary { border-bottom: 1px solid var(--border); }
     .helper-body { padding: 8px 10px; font-size: 11px; }
     .helper-body p { margin: 0 0 6px; color: var(--muted); font-size: 10.5px; }
+    .helper-body ol.steps { margin: 0; padding-left: 20px; font-size: 11px; color: var(--text); }
+    .helper-body ol.steps li { margin-bottom: 10px; line-height: 1.55; }
+    .helper-body ol.steps li:last-child { margin-bottom: 0; }
+    .helper-body ol.steps li b { color: var(--text); font-weight: 600; }
+    .helper-body .step-intro {
+      color: var(--muted); font-size: 10.5px; margin-bottom: 10px;
+      padding-bottom: 8px; border-bottom: 1px dashed var(--border);
+    }
+    .helper-body .field-label {
+      color: var(--accent); margin: 8px 0 2px; font-size: 10.5px; font-family: var(--mono);
+    }
+    .helper-body .hint { color: var(--dim); font-size: 10px; margin-top: 4px; font-style: italic; }
+    .helper-body code {
+      font-family: var(--mono); color: var(--text); background: var(--bg);
+      padding: 1px 5px; border-radius: 3px; font-size: 10px; border: 1px solid var(--border);
+    }
     .code-block {
       position: relative; background: var(--bg); border: 1px solid var(--border);
       border-radius: 4px; padding: 8px 10px; padding-right: 60px;
@@ -250,6 +269,25 @@
       <div class="col">
         <div class="col-label">Inputs</div>
 
+        <!-- Trade target (shared market picker — drives JSON snippets + manual form) -->
+        <section class="panel" id="targetPanel">
+          <div class="panel-head">
+            <h2>Trade target</h2>
+            <span class="pill idle" id="targetPill">—</span>
+          </div>
+          <div class="form" style="margin-top:6px">
+            <div class="form-row">
+              <label>market</label>
+              <select id="marketSel"><option value="">loading…</option></select>
+            </div>
+            <div class="src-stat" id="targetMeta" style="margin-top:4px">
+              <span>id: <span class="n" id="targetId">—</span></span>
+              <span>px: <span class="n" id="targetPx">—</span></span>
+              <span>maxLev: <span class="n" id="targetMaxLev">—</span></span>
+            </div>
+          </div>
+        </section>
+
         <!-- TradingView -->
         <section class="panel">
           <div class="panel-head">
@@ -261,18 +299,51 @@
             <span>last: <span class="lt" id="srcTvLast">—</span></span>
           </div>
           <details>
-            <summary>show webhook URL + JSON templates</summary>
+            <summary>setup guide — connect a TradingView alert</summary>
             <div class="helper-body">
-              <p>POST this URL from your TradingView alert (Pro+ plan required):</p>
-              <div class="code-block" id="tvUrl" data-copy>—</div>
-              <p>Alert message body — open LONG:</p>
-              <div class="code-block" id="tvOpenLong" data-copy>—</div>
-              <p>Open SHORT:</p>
-              <div class="code-block" id="tvOpenShort" data-copy>—</div>
-              <p>Close by market+side (auto-resolves trade idx):</p>
-              <div class="code-block" id="tvClose" data-copy>—</div>
-              <p>Close by exact userTradeIndex:</p>
-              <div class="code-block" id="tvCloseByIndex" data-copy>—</div>
+              <p class="step-intro">One alert per signal you want to act on. Requires a TradingView <b>Pro+ plan</b> (webhooks are paid-only). Setup takes ~1 min per alert.</p>
+
+              <ol class="steps">
+                <li>
+                  <b>Open a chart</b> for the asset you want to trade (e.g. BTCUSDT) and add your strategy or indicator.
+                </li>
+
+                <li>
+                  <b>Click the Alert button</b> in TradingView's top toolbar (clock icon, between <i>Indicators</i> and <i>Replay</i>), or press <code>Alt+A</code>. The <i>Create Alert on …</i> dialog opens.
+                </li>
+
+                <li>
+                  In the <b>Settings</b> tab, set <i>Condition</i> to the strategy event that should fire this alert. Leave <i>Expiration</i> as Open-ended. Name the alert anything.
+                  <p class="hint">Then paste one of the JSON payloads below into the <b>Message</b> field — pick the one matching the action this alert fires on:</p>
+
+                  <p class="field-label">→ open LONG (entry signal)</p>
+                  <div class="code-block" id="tvOpenLong" data-copy>—</div>
+
+                  <p class="field-label">→ open SHORT (entry signal)</p>
+                  <div class="code-block" id="tvOpenShort" data-copy>—</div>
+
+                  <p class="field-label">→ close position (by market + side)</p>
+                  <div class="code-block" id="tvClose" data-copy>—</div>
+
+                  <p class="field-label">→ close exact trade by index</p>
+                  <div class="code-block" id="tvCloseByIndex" data-copy>—</div>
+
+                  <p class="field-label">→ Pine strategy (single alert for entries + exits)</p>
+                  <div class="code-block" id="tvStrategy" data-copy>—</div>
+                  <p class="hint">For TradingView <b>Strategy</b> alerts (set <i>Condition</i> = your strategy + <i>Order fills only</i>). The bridge reads <code>{{strategy.order.action}}</code> + <code>{{strategy.market_position}}</code> and translates buy/sell/flat → open_long/open_short/close.</p>
+
+                  <p class="hint">Replace <code>&lt;YOUR_WEBHOOK_SECRET&gt;</code> with the value of <code>WEBHOOK_SECRET</code> from your <code>.env</code>. The bridge rejects payloads without it.</p>
+                </li>
+
+                <li>
+                  Switch to the <b>Notifications</b> tab. Check <b>Webhook URL</b> and paste:
+                  <div class="code-block" id="tvUrl" data-copy>—</div>
+                </li>
+
+                <li>
+                  Click <b>Create</b>. Done — when the strategy fires, the signal lands in the Activity log on the left and (if not in dry-run) opens the trade.
+                </li>
+              </ol>
             </div>
           </details>
         </section>
@@ -307,10 +378,6 @@
             <span>last: <span class="lt" id="srcUiLast">—</span></span>
           </div>
           <div class="form">
-            <div class="form-row">
-              <label>market</label>
-              <select id="marketSel"><option value="">loading…</option></select>
-            </div>
             <div class="form-row">
               <label>side</label>
               <div class="seg" id="sideSeg">
@@ -482,28 +549,92 @@
       }
     }
 
+    let marketCache = []
+
     async function fetchMarkets() {
       const sel = document.getElementById("marketSel")
       try {
         const r = await fetch("/api/markets", { cache: "no-store" })
         const j = await r.json()
         const ms = j.markets || []
-        const cur = sel.value
+        marketCache = ms
+        const cur = sel.value || localStorage.getItem("targetMarketId") || ""
         sel.innerHTML = ""
         if (ms.length === 0) {
           sel.innerHTML = '<option value="">no open markets</option>'
+          renderTargetMeta(null)
           return
         }
-        for (const m of ms) {
+        // Sort: alphabetical by base symbol for findability.
+        const sorted = ms.slice().sort((a, b) => (a.base || "").localeCompare(b.base || ""))
+        for (const m of sorted) {
           const opt = document.createElement("option")
           opt.value = String(m.marketId)
-          opt.textContent = m.base + "/" + m.quote + "  (" + m.marketId + ")  @ " + m.price
+          const px = typeof m.price === "number"
+            ? (m.price < 1 ? m.price.toPrecision(4) : m.price.toFixed(2))
+            : "?"
+          opt.textContent = m.base + "/" + m.quote + " · #" + m.marketId + " · $" + px + " · " + m.maxLeverage + "x max"
           sel.appendChild(opt)
         }
-        if (cur) sel.value = cur
+        // Restore prior selection or default to first.
+        if (cur && sorted.some((m) => String(m.marketId) === cur)) sel.value = cur
+        renderTargetMeta(currentMarket())
       } catch {
         sel.innerHTML = '<option value="">error loading markets</option>'
+        renderTargetMeta(null)
       }
+    }
+
+    function currentMarket() {
+      const id = document.getElementById("marketSel").value
+      if (!id) return null
+      return marketCache.find((m) => String(m.marketId) === id) || null
+    }
+
+    function renderTargetMeta(m) {
+      const pill = document.getElementById("targetPill")
+      const idEl = document.getElementById("targetId")
+      const pxEl = document.getElementById("targetPx")
+      const lvEl = document.getElementById("targetMaxLev")
+      if (!m) {
+        pill.textContent = "—"; pill.className = "pill idle"
+        idEl.textContent = "—"; pxEl.textContent = "—"; lvEl.textContent = "—"
+        return
+      }
+      pill.textContent = m.base + "/" + m.quote
+      pill.className = "pill active"
+      idEl.textContent = String(m.marketId)
+      pxEl.textContent = typeof m.price === "number"
+        ? "$" + (m.price < 1 ? m.price.toPrecision(4) : m.price.toFixed(2))
+        : "—"
+      lvEl.textContent = m.maxLeverage + "x"
+    }
+
+    function renderWebhookSnippets() {
+      const m = currentMarket()
+      const marketId = m ? m.marketId : 0
+      setCode("tvOpenLong", JSON.stringify({
+        secret: "<YOUR_WEBHOOK_SECRET>", action: "open_long",
+        marketId, leverage: 2, amountUsdc: "5", slippagePct: "1",
+      }, null, 2))
+      setCode("tvOpenShort", JSON.stringify({
+        secret: "<YOUR_WEBHOOK_SECRET>", action: "open_short",
+        marketId, leverage: 2, amountUsdc: "5", slippagePct: "1",
+      }, null, 2))
+      setCode("tvClose", JSON.stringify({
+        secret: "<YOUR_WEBHOOK_SECRET>", action: "close",
+        marketId, long: true,
+      }, null, 2))
+      setCode("tvCloseByIndex", JSON.stringify({
+        secret: "<YOUR_WEBHOOK_SECRET>", action: "close",
+        userTradeIndex: 42,
+      }, null, 2))
+      setCode("tvStrategy", JSON.stringify({
+        secret: "<YOUR_WEBHOOK_SECRET>", action: "strategy",
+        marketId, leverage: 2, amountUsdc: "5", slippagePct: "1",
+        orderAction: "{{strategy.order.action}}",
+        marketPosition: "{{strategy.market_position}}",
+      }, null, 2))
     }
 
     function renderSource(idKey, dataKey) {
@@ -563,18 +694,33 @@
       if (!s.positions || s.positions.length === 0) {
         html += '<div class="empty">no open positions</div>'
       } else {
+        // sort by pnl % descending so winners on top
+        const sorted = s.positions.slice().sort((a, b) => (b.pnlPct ?? -Infinity) - (a.pnlPct ?? -Infinity))
         html += "<table><thead><tr>"
-        html += "<th>idx</th><th>pair</th><th>side</th><th>lev</th><th>coll</th><th>entry</th><th></th>"
+        html += "<th>pair</th><th>side</th><th>lev</th><th>coll</th><th>entry</th><th>mark</th><th>pnl</th><th>liq</th><th>opened</th><th></th>"
         html += "</tr></thead><tbody>"
-        for (const p of s.positions) {
+        for (const p of sorted) {
           const pair = p.base && p.quote ? (p.base + "/" + p.quote) : ("m" + p.marketId)
+          const pnlCls = p.pnlUsdc === null ? "pnl-zero" : p.pnlUsdc > 0 ? "pnl-pos" : p.pnlUsdc < 0 ? "pnl-neg" : "pnl-zero"
+          const pnlStr = p.pnlUsdc === null
+            ? "—"
+            : (p.pnlUsdc >= 0 ? "+" : "") + p.pnlUsdc.toFixed(2)
+          const pnlPctStr = p.pnlPct === null
+            ? ""
+            : " (" + (p.pnlPct >= 0 ? "+" : "") + p.pnlPct.toFixed(1) + "%)"
+          const openedMs = p.openedAt ? Date.parse(p.openedAt) : null
+          const openedRel = openedMs ? fmt.rel(openedMs) : "—"
+          const openedTitle = p.openedAt ? new Date(p.openedAt).toLocaleString() : ""
           html += "<tr>"
-          html += "<td>" + p.id + "</td>"
-          html += "<td>" + pair + "</td>"
+          html += "<td>" + pair + " <span style='color:var(--dim);font-size:10px'>#" + p.id + "</span></td>"
           html += '<td><span class="pill ' + (p.long ? "long" : "short") + '">' + (p.long ? "L" : "S") + "</span></td>"
           html += "<td>" + p.leverage + "x</td>"
           html += "<td>" + fmt.num(p.collateralUsdc, 2) + "</td>"
-          html += "<td>" + fmt.num(p.openPrice, 4) + "</td>"
+          html += "<td>" + fmt.num(p.openPrice, 2) + "</td>"
+          html += "<td>" + fmt.num(p.markPrice, 2) + "</td>"
+          html += '<td class="' + pnlCls + '">' + pnlStr + pnlPctStr + "</td>"
+          html += "<td>" + fmt.num(p.liquidationPrice, 2) + "</td>"
+          html += '<td title="' + escapeHtml(openedTitle) + '" style="color:var(--dim)">' + openedRel + "</td>"
           html += '<td><button class="btn sm red" data-close="' + p.id + '">close</button></td>'
           html += "</tr>"
         }
@@ -595,6 +741,7 @@
           const sideLbl = e.action === "open_long" ? "LONG"
             : e.action === "open_short" ? "SHORT"
             : e.action === "close" ? "CLOSE"
+            : e.action === "confirm" ? "CONFIRM"
             : e.action.toUpperCase()
           const sidePill = e.action === "open_long" ? "long"
             : e.action === "open_short" ? "short" : ""
@@ -613,8 +760,8 @@
         ew.innerHTML = h
       }
 
-      // tx history (only broadcast events with txHash)
-      const txs = events.filter((e) => e.txHash)
+      // tx history (only broadcast events with txHash, not confirmation follow-ups)
+      const txs = events.filter((e) => e.txHash && e.action !== "confirm")
       const tw = document.getElementById("txWrap")
       if (txs.length === 0) {
         tw.innerHTML = '<div class="empty">no broadcast txs yet</div>'
@@ -638,22 +785,7 @@
       // helpers — fill code blocks
       const url = s.webhookUrl || "(unknown)"
       setCode("tvUrl", url)
-      setCode("tvOpenLong", JSON.stringify({
-        secret: "<YOUR_WEBHOOK_SECRET>", action: "open_long",
-        marketId: 1, leverage: 2, amountUsdc: "5", slippagePct: "1",
-      }, null, 2))
-      setCode("tvOpenShort", JSON.stringify({
-        secret: "<YOUR_WEBHOOK_SECRET>", action: "open_short",
-        marketId: 1, leverage: 2, amountUsdc: "5", slippagePct: "1",
-      }, null, 2))
-      setCode("tvClose", JSON.stringify({
-        secret: "<YOUR_WEBHOOK_SECRET>", action: "close",
-        marketId: 1, long: true,
-      }, null, 2))
-      setCode("tvCloseByIndex", JSON.stringify({
-        secret: "<YOUR_WEBHOOK_SECRET>", action: "close",
-        userTradeIndex: 42,
-      }, null, 2))
+      renderWebhookSnippets()
       setCode("mcpJson", JSON.stringify({
         mcpServers: {
           sai: { command: "npx", args: ["tsx", "<absolute path to>/sai-trade-bridge/src/mcp.ts"] },
@@ -729,6 +861,13 @@
     document.getElementById("clearBtn").addEventListener("click", async () => {
       const res = await auth("/api/clear-events", {})
       if (res.ok) fetchState()
+    })
+
+    document.getElementById("marketSel").addEventListener("change", () => {
+      const id = document.getElementById("marketSel").value
+      if (id) localStorage.setItem("targetMarketId", id)
+      renderTargetMeta(currentMarket())
+      renderWebhookSnippets()
     })
 
     document.getElementById("sideSeg").addEventListener("click", (e) => {

@@ -3,6 +3,8 @@
  * we need to size orders and resolve user trades.
  */
 
+import { evmToBech32 as evmToBech32Local } from "./bech32"
+
 async function gql<T>(endpoint: string, query: string, variables?: object): Promise<T> {
   const res = await fetch(endpoint, {
     method: "POST",
@@ -55,32 +57,48 @@ export type MarketSummary = {
   isOpen: boolean
   base: string
   quote: string
+  maxLeverage: number
 }
 
 export async function listMarkets(
   endpoint: string,
-  collateralId: number,
+  // collateralId kept in the signature for backward compat — the borrowings
+  // query returns one row per (marketId, collateral) pair so we just dedupe by
+  // marketId. Sai exposes the same market across collaterals at the same price.
+  _collateralId: number,
 ): Promise<MarketSummary[]> {
-  // We don't have an introspection-guaranteed list query, so scan marketIds
-  // 0..30 and keep open ones. This is cheap and matches how the webapp
-  // populates its market dropdown.
-  const out: MarketSummary[] = []
-  for (let id = 0; id < 30; id++) {
-    try {
-      const b = await fetchBorrowing(endpoint, id, collateralId)
-      if (b.isOpen) {
-        out.push({
-          marketId: b.marketId,
-          price: b.price,
-          isOpen: b.isOpen,
-          base: b.baseToken.symbol ?? b.baseToken.name,
-          quote: b.quoteToken.symbol ?? b.quoteToken.name,
-        })
-      }
-    } catch {
-      // skip
-    }
+  type RawBorrowing = {
+    marketId: number
+    isOpen: boolean
+    price: number
+    maxLeverage: number
+    baseToken: { symbol: string | null; name: string }
+    quoteToken: { symbol: string | null; name: string }
   }
+  const data = await gql<{ perp: { borrowings: RawBorrowing[] } | null }>(
+    endpoint,
+    `query { perp { borrowings {
+      marketId isOpen price maxLeverage
+      baseToken { symbol name }
+      quoteToken { symbol name }
+    } } }`,
+  )
+  const seen = new Set<number>()
+  const out: MarketSummary[] = []
+  for (const b of data.perp?.borrowings ?? []) {
+    if (seen.has(b.marketId)) continue
+    seen.add(b.marketId)
+    if (!b.isOpen) continue
+    out.push({
+      marketId: b.marketId,
+      price: b.price,
+      isOpen: b.isOpen,
+      base: b.baseToken.symbol ?? b.baseToken.name,
+      quote: b.quoteToken.symbol ?? b.quoteToken.name,
+      maxLeverage: b.maxLeverage,
+    })
+  }
+  out.sort((a, b) => a.marketId - b.marketId)
   return out
 }
 
@@ -131,7 +149,7 @@ export async function findOpenTrade(
         }
       }
     }`,
-    { trader: evmAddress.toLowerCase() },
+    { trader: evmToBech32Local(evmAddress) },
   )
   const trades = data.perp?.trades ?? []
   const match = trades.find(

@@ -51,6 +51,7 @@ export type AppConfig = {
   webhookSecret: string
   port: number
   bind: string
+  publicWebhookUrl: string | null
 }
 
 export function loadConfig(opts?: { requireSecret?: boolean }): AppConfig {
@@ -76,5 +77,6 @@ export function loadConfig(opts?: { requireSecret?: boolean }): AppConfig {
     webhookSecret,
     port: Number(envOr("PORT", "3030")),
     bind: envOr("BIND", "127.0.0.1"),
+    publicWebhookUrl: process.env.PUBLIC_WEBHOOK_URL?.trim() || null,
   }
 }
