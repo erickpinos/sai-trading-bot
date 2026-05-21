@@ -227,6 +227,25 @@ async function main() {
         getUsdcBalance(signer).catch((e) => `error: ${(e as Error).message}`),
         getOpenPositions(signer),
       ])
+      const events = recentEvents()
+      const sources: Record<
+        string,
+        { count: number; lastTs: number | null; lastStatus: string | null }
+      > = {
+        webhook: { count: 0, lastTs: null, lastStatus: null },
+        mcp: { count: 0, lastTs: null, lastStatus: null },
+        ui: { count: 0, lastTs: null, lastStatus: null },
+        cli: { count: 0, lastTs: null, lastStatus: null },
+      }
+      for (const e of events) {
+        const slot = sources[e.source]
+        if (!slot) continue
+        slot.count += 1
+        if (slot.lastTs === null || e.ts > slot.lastTs) {
+          slot.lastTs = e.ts
+          slot.lastStatus = e.status
+        }
+      }
       res.json({
         chain: app.chain,
         wallet: signer.wallet.address,
@@ -237,7 +256,8 @@ async function main() {
         usdcBalance: balance,
         positions: openRes.positions,
         positionsWarning: openRes.warning,
-        events: recentEvents(),
+        events,
+        sources,
       })
     } catch (err) {
       res.status(500).json({ error: (err as Error).message })

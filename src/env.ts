@@ -23,7 +23,7 @@ export function loadDotenv(): void {
       const eq = trimmed.indexOf("=")
       if (eq === -1) continue
       const key = trimmed.slice(0, eq).trim()
-      let value = trimmed.slice(eq + 1).trim()
+      let value = stripInlineComment(trimmed.slice(eq + 1).trim())
       if (
         (value.startsWith('"') && value.endsWith('"')) ||
         (value.startsWith("'") && value.endsWith("'"))
@@ -34,4 +34,15 @@ export function loadDotenv(): void {
     }
     return
   }
+}
+
+function stripInlineComment(value: string): string {
+  if (value.startsWith('"') || value.startsWith("'")) {
+    const quote = value[0]
+    for (let i = 1; i < value.length; i++) {
+      if (value[i] === quote) return value.slice(0, i + 1)
+    }
+    return value
+  }
+  return value.replace(/\s+#.*$/, "").trim()
 }

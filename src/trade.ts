@@ -46,14 +46,16 @@ export async function openTrade(
   const amount = ethers.parseUnits(args.amountUsdc, USDC_DECIMALS)
   const slippage = args.slippagePct ?? "1"
 
-  // Balance check (best-effort; reverts will surface anyway).
-  const usdc = new ethers.Contract(cfg.usdcEvm, ERC20_ABI, wallet)
-  const balanceOf = usdc.getFunction("balanceOf")
-  const erc20Balance: bigint = await balanceOf(wallet.address)
-  if (erc20Balance < amount) {
-    throw new Error(
-      `Insufficient USDC: have ${ethers.formatUnits(erc20Balance, USDC_DECIMALS)}, need ${args.amountUsdc}`,
-    )
+  if (!opts.dryRun) {
+    // Balance check (best-effort; reverts will surface anyway).
+    const usdc = new ethers.Contract(cfg.usdcEvm, ERC20_ABI, wallet)
+    const balanceOf = usdc.getFunction("balanceOf")
+    const erc20Balance: bigint = await balanceOf(wallet.address)
+    if (erc20Balance < amount) {
+      throw new Error(
+        `Insufficient USDC: have ${ethers.formatUnits(erc20Balance, USDC_DECIMALS)}, need ${args.amountUsdc}`,
+      )
+    }
   }
 
   const wasmMsg = {
