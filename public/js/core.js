@@ -280,7 +280,6 @@ function renderHeader(s) {
 // ---------- boot ----------
 
 const COMPONENT_MODULES = [
-  "/components/strategy-engine/strategy-engine.js",
   "/components/alert-builder/alert-builder.js",
   "/components/pipeline-state/pipeline-state.js",
   "/components/controls/controls.js",

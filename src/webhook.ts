@@ -35,13 +35,6 @@ import {
 import { getUsdcBalance, getOpenPositions } from "./positions"
 import { listMarkets, findOpenTrade, type MarketSummary } from "./sai-keeper"
 import { getTunnelState, startTunnel, stopTunnel } from "./tunnel"
-import {
-  initStrategies,
-  listStrategies,
-  startStrategy,
-  stopStrategy,
-  STRATEGY_CATALOG,
-} from "./strategies"
 
 loadDotenv()
 
@@ -106,7 +99,6 @@ async function main() {
   const signer = buildSigner(app)
   initDryRun(app.dryRun)
   initEventLog(resolve(process.cwd(), "events.jsonl"))
-  initStrategies({ signer, app })
 
   console.log(`[boot] chain=${app.chain} wallet=${signer.wallet.address}`)
   console.log(`[boot] evmInterface=${app.cfg.evmInterface} dryRun=${app.dryRun}`)
@@ -422,7 +414,6 @@ async function main() {
         positionsWarning: openRes.warning,
         events,
         sources,
-        strategies: listStrategies(),
       })
     } catch (err) {
       res.status(500).json({ error: (err as Error).message })
@@ -460,31 +451,6 @@ async function main() {
     if (!checkSecret(req)) return res.status(403).json({ error: "forbidden" })
     clearEvents()
     res.json({ cleared: true })
-  })
-
-  // -------- Strategy engine endpoints --------
-  // Catalog is static metadata — safe to expose unauthenticated so the
-  // dashboard can render the picker without prompting for a secret.
-  server.get("/api/strategies/catalog", (_req, res) => {
-    res.json({ catalog: STRATEGY_CATALOG })
-  })
-
-  server.post("/api/strategies/start", (req, res) => {
-    if (!checkSecret(req)) return res.status(403).json({ error: "forbidden" })
-    try {
-      const view = startStrategy(req.body)
-      res.json({ strategy: view })
-    } catch (err) {
-      res.status(400).json({ error: "invalid_spec", message: (err as Error).message })
-    }
-  })
-
-  server.post("/api/strategies/stop", (req, res) => {
-    if (!checkSecret(req)) return res.status(403).json({ error: "forbidden" })
-    const id = (req.body as { id?: string })?.id
-    if (!id) return res.status(400).json({ error: "missing_id" })
-    const ok = stopStrategy(id)
-    res.json({ stopped: ok, id })
   })
 
   server.post("/api/tunnel/start", async (req, res) => {
