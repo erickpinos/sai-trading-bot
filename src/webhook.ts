@@ -115,6 +115,18 @@ async function main() {
     return data
   }
 
+  // Prime the markets cache in the background so close/confirm events can
+  // enrich with base/quote symbols on the first webhook (instead of falling
+  // back to "m0" in the activity log).
+  void (async () => {
+    try {
+      const ms = await getMarkets()
+      console.log(`[boot] markets cache primed (${ms.length} markets)`)
+    } catch (err) {
+      console.warn(`[boot] markets prime failed: ${(err as Error).message}`)
+    }
+  })()
+
   function checkSecret(req: Request): boolean {
     const secret = req.header("x-secret") ?? ""
     return timingSafeEqual(secret, app.webhookSecret)
@@ -126,7 +138,11 @@ async function main() {
 
   // Webhook callers (TradingView) have ~3s timeout — too short to wait for
   // tx receipt on mainnet. Respond after broadcast, log receipt async.
-  function webhookTradeOpts(action: string, marketId: number | undefined) {
+  function webhookTradeOpts(
+    action: string,
+    marketId: number | undefined,
+    symbols?: { base?: string; quote?: string },
+  ) {
     return {
       ...tradeOpts(),
       awaitReceipt: false as const,
@@ -137,7 +153,10 @@ async function main() {
             recordEvent({
               source: "webhook",
               action: "confirm",
+              confirmOf: action,
               marketId,
+              base: symbols?.base,
+              quote: symbols?.quote,
               status: reverted ? "error" : "broadcast",
               txHash: tx.hash,
               explorer: app.cfg.explorerTx(tx.hash),
@@ -150,7 +169,10 @@ async function main() {
             recordEvent({
               source: "webhook",
               action: "confirm",
+              confirmOf: action,
               marketId,
+              base: symbols?.base,
+              quote: symbols?.quote,
               status: "error",
               txHash: tx.hash,
               explorer: app.cfg.explorerTx(tx.hash),
@@ -159,6 +181,15 @@ async function main() {
           })
       },
     }
+  }
+
+  // Sync lookup of base/quote from the markets cache. Used to enrich close /
+  // confirm events that only know the marketId. Returns empty object if the
+  // cache hasn't been primed or the market isn't in it.
+  function lookupSymbols(marketId: number | undefined): { base?: string; quote?: string } {
+    if (marketId === undefined || !marketsCache) return {}
+    const m = marketsCache.data.find((x) => x.marketId === marketId)
+    return m ? { base: m.base, quote: m.quote } : {}
   }
 
   const server = express()
@@ -178,201 +209,203 @@ async function main() {
   })
 
   // -------- TradingView webhook --------
+  //
+  // TradingView times out webhooks at ~3s. Sai mainnet broadcast latency
+  // (estimateGas + RPC round-trip) can blow past that, especially on reversal
+  // alerts that fire a close *and* an open. We ack the alert immediately and
+  // run the trade in a fire-and-forget background block — events still flow
+  // to the activity log, but TV stops marking alerts as failed.
   server.post("/webhook", async (req: Request, res: Response) => {
     const startedAt = Date.now()
-    try {
-      const parsed = WebhookSchema.safeParse(req.body)
-      if (!parsed.success) {
-        return res.status(400).json({ error: "invalid_payload", details: parsed.error.flatten() })
-      }
-      const body = parsed.data
+    const parsed = WebhookSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_payload", details: parsed.error.flatten() })
+    }
+    const body = parsed.data
 
-      if (!timingSafeEqual(body.secret, app.webhookSecret)) {
-        return res.status(403).json({ error: "forbidden" })
-      }
+    if (!timingSafeEqual(body.secret, app.webhookSecret)) {
+      return res.status(403).json({ error: "forbidden" })
+    }
 
-      if (isKilled()) {
-        recordEvent({
-          source: "webhook",
-          action: "rejected",
-          status: "blocked",
-          message: `kill switch engaged — rejected ${body.action}`,
-          durationMs: Date.now() - startedAt,
-        })
-        return res.status(503).json({ error: "kill_switch_engaged" })
-      }
-
-      if (body.action === "open_long" || body.action === "open_short") {
-        const result = await openTrade(
-          signer,
-          {
-            marketId: body.marketId,
-            long: body.action === "open_long",
-            leverage: body.leverage,
-            amountUsdc: body.amountUsdc,
-            slippagePct: body.slippagePct ?? app.defaultSlippagePct,
-          },
-          webhookTradeOpts(body.action, body.marketId),
-        )
-        recordEvent({
-          source: "webhook",
-          action: body.action,
-          marketId: result.marketId,
-          base: result.base,
-          quote: result.quote,
-          leverage: body.leverage,
-          amountUsdc: body.amountUsdc,
-          status: result.status,
-          txHash: result.txHash,
-          explorer: result.explorer,
-          message: result.message,
-          durationMs: Date.now() - startedAt,
-        })
-        return res.json(result)
-      }
-
-      if (body.action === "close") {
-        const result = await closeTrade(
-          signer,
-          { userTradeIndex: body.userTradeIndex },
-          webhookTradeOpts("close", undefined),
-        )
-        recordEvent({
-          source: "webhook",
-          action: "close",
-          status: result.status,
-          txHash: result.txHash,
-          explorer: result.explorer,
-          message: result.message,
-          durationMs: Date.now() - startedAt,
-        })
-        return res.json(result)
-      }
-
-      if (body.action === "strategy") {
-        // Translate (orderAction, marketPosition) → open_long | open_short |
-        // close. See README for the truth table; reversals (buy while short
-        // open, sell while long open) are treated as a fresh entry — operator
-        // is expected to close manually or wire a separate close alert.
-        const oa = body.orderAction
-        const mp = body.marketPosition
-        let translated: "open_long" | "open_short" | "close"
-        let closeLong: boolean | null = null
-        if (oa === "buy" && mp === "long") translated = "open_long"
-        else if (oa === "sell" && mp === "short") translated = "open_short"
-        else if (oa === "sell" && mp === "flat") { translated = "close"; closeLong = true }
-        else if (oa === "buy" && mp === "flat") { translated = "close"; closeLong = false }
-        else {
-          recordEvent({
-            source: "webhook",
-            action: "rejected",
-            marketId: body.marketId,
-            status: "error",
-            message: `strategy fill ambiguous: orderAction=${oa} marketPosition=${mp}`,
-            durationMs: Date.now() - startedAt,
-          })
-          return res.status(400).json({
-            error: "ambiguous_strategy_fill",
-            orderAction: oa,
-            marketPosition: mp,
-          })
-        }
-
-        if (translated === "close") {
-          const result = await closeTrade(
-            signer,
-            { marketId: body.marketId, long: closeLong as boolean },
-            webhookTradeOpts("close", body.marketId),
-          )
-          recordEvent({
-            source: "webhook",
-            action: "close",
-            marketId: body.marketId,
-            status: result.status,
-            txHash: result.txHash,
-            explorer: result.explorer,
-            message: `[strategy ${oa}/${mp}] ${result.message}`,
-            durationMs: Date.now() - startedAt,
-          })
-          return res.json({ ...result, translatedFrom: { orderAction: oa, marketPosition: mp } })
-        }
-
-        // Reversal handling: if the opposite-side position is open in this
-        // market, close it before opening the new side. Lets TV strategies in
-        // Long/Short mode work without losing track of stacked positions, and
-        // is a no-op for Long/Flat strategies (which never send a same-bar
-        // reversal alert).
-        const openingLong = translated === "open_long"
-        const oppositeTrade = await findOpenTrade(
-          app.cfg.saiKeeperEndpoint,
-          signer.wallet.address,
-          body.marketId,
-          !openingLong,
-        ).catch(() => null)
-
-        let reversalClose: Awaited<ReturnType<typeof closeTrade>> | null = null
-        if (oppositeTrade) {
-          reversalClose = await closeTrade(
-            signer,
-            { userTradeIndex: oppositeTrade.userTradeIndex },
-            webhookTradeOpts("reversal-close", body.marketId),
-          )
-          recordEvent({
-            source: "webhook",
-            action: "close",
-            marketId: body.marketId,
-            status: reversalClose.status,
-            txHash: reversalClose.txHash,
-            explorer: reversalClose.explorer,
-            message: `[strategy ${oa}/${mp} reversal] closed opposite trade #${oppositeTrade.userTradeIndex}: ${reversalClose.message}`,
-            durationMs: Date.now() - startedAt,
-          })
-        }
-
-        const result = await openTrade(
-          signer,
-          {
-            marketId: body.marketId,
-            long: openingLong,
-            leverage: body.leverage,
-            amountUsdc: body.amountUsdc,
-            slippagePct: body.slippagePct ?? app.defaultSlippagePct,
-          },
-          webhookTradeOpts(translated, body.marketId),
-        )
-        recordEvent({
-          source: "webhook",
-          action: translated,
-          marketId: result.marketId,
-          base: result.base,
-          quote: result.quote,
-          leverage: body.leverage,
-          amountUsdc: body.amountUsdc,
-          status: result.status,
-          txHash: result.txHash,
-          explorer: result.explorer,
-          message: `[strategy ${oa}/${mp}${reversalClose ? " reversal" : ""}] ${result.message}`,
-          durationMs: Date.now() - startedAt,
-        })
-        return res.json({
-          ...result,
-          translatedFrom: { orderAction: oa, marketPosition: mp },
-          reversalClose: reversalClose ?? undefined,
-        })
-      }
-
-      return res.status(400).json({ error: "unknown_action" })
-    } catch (err) {
-      const msg = (err as Error).message
+    if (isKilled()) {
       recordEvent({
         source: "webhook",
         action: "rejected",
-        status: "error",
-        message: msg,
+        status: "blocked",
+        message: `kill switch engaged — rejected ${body.action}`,
         durationMs: Date.now() - startedAt,
       })
-      return res.status(500).json({ error: "trade_failed", message: msg })
+      return res.status(503).json({ error: "kill_switch_engaged" })
     }
+
+    // Acknowledge TV immediately, then run the trade async.
+    res.json({ status: "queued", action: body.action, queuedAt: startedAt })
+
+    void (async () => {
+      try {
+        if (body.action === "open_long" || body.action === "open_short") {
+          const sym = lookupSymbols(body.marketId)
+          const result = await openTrade(
+            signer,
+            {
+              marketId: body.marketId,
+              long: body.action === "open_long",
+              leverage: body.leverage,
+              amountUsdc: body.amountUsdc,
+              slippagePct: body.slippagePct ?? app.defaultSlippagePct,
+            },
+            webhookTradeOpts(body.action, body.marketId, sym),
+          )
+          recordEvent({
+            source: "webhook",
+            action: body.action,
+            marketId: result.marketId,
+            base: result.base,
+            quote: result.quote,
+            leverage: body.leverage,
+            amountUsdc: body.amountUsdc,
+            status: result.status,
+            txHash: result.txHash,
+            explorer: result.explorer,
+            message: result.message,
+            durationMs: Date.now() - startedAt,
+          })
+          return
+        }
+
+        if (body.action === "close") {
+          const result = await closeTrade(
+            signer,
+            { userTradeIndex: body.userTradeIndex },
+            webhookTradeOpts("close", undefined),
+          )
+          recordEvent({
+            source: "webhook",
+            action: "close",
+            status: result.status,
+            txHash: result.txHash,
+            explorer: result.explorer,
+            message: result.message,
+            durationMs: Date.now() - startedAt,
+          })
+          return
+        }
+
+        if (body.action === "strategy") {
+          const oa = body.orderAction
+          const mp = body.marketPosition
+          let translated: "open_long" | "open_short" | "close"
+          let closeLong: boolean | null = null
+          if (oa === "buy" && mp === "long") translated = "open_long"
+          else if (oa === "sell" && mp === "short") translated = "open_short"
+          else if (oa === "sell" && mp === "flat") { translated = "close"; closeLong = true }
+          else if (oa === "buy" && mp === "flat") { translated = "close"; closeLong = false }
+          else {
+            recordEvent({
+              source: "webhook",
+              action: "rejected",
+              marketId: body.marketId,
+              status: "error",
+              message: `strategy fill ambiguous: orderAction=${oa} marketPosition=${mp}`,
+              durationMs: Date.now() - startedAt,
+            })
+            return
+          }
+
+          const sym = lookupSymbols(body.marketId)
+
+          if (translated === "close") {
+            const result = await closeTrade(
+              signer,
+              { marketId: body.marketId, long: closeLong as boolean },
+              webhookTradeOpts("close", body.marketId, sym),
+            )
+            recordEvent({
+              source: "webhook",
+              action: "close",
+              marketId: body.marketId,
+              base: sym.base,
+              quote: sym.quote,
+              status: result.status,
+              txHash: result.txHash,
+              explorer: result.explorer,
+              message: `[strategy ${oa}/${mp}] ${result.message}`,
+              durationMs: Date.now() - startedAt,
+            })
+            return
+          }
+
+          // Reversal handling: if the opposite-side position is open in this
+          // market, close it before opening the new side. Lets TV strategies in
+          // Long/Short mode work without losing track of stacked positions, and
+          // is a no-op for Long/Flat strategies (which never send a same-bar
+          // reversal alert).
+          const openingLong = translated === "open_long"
+          const oppositeTrade = await findOpenTrade(
+            app.cfg.saiKeeperEndpoint,
+            signer.wallet.address,
+            body.marketId,
+            !openingLong,
+          ).catch(() => null)
+
+          let reversalClose: Awaited<ReturnType<typeof closeTrade>> | null = null
+          if (oppositeTrade) {
+            reversalClose = await closeTrade(
+              signer,
+              { userTradeIndex: oppositeTrade.userTradeIndex },
+              webhookTradeOpts("reversal-close", body.marketId, sym),
+            )
+            recordEvent({
+              source: "webhook",
+              action: "close",
+              marketId: body.marketId,
+              base: sym.base,
+              quote: sym.quote,
+              status: reversalClose.status,
+              txHash: reversalClose.txHash,
+              explorer: reversalClose.explorer,
+              message: `[strategy ${oa}/${mp} reversal] closed opposite trade #${oppositeTrade.userTradeIndex}: ${reversalClose.message}`,
+              durationMs: Date.now() - startedAt,
+            })
+          }
+
+          const result = await openTrade(
+            signer,
+            {
+              marketId: body.marketId,
+              long: openingLong,
+              leverage: body.leverage,
+              amountUsdc: body.amountUsdc,
+              slippagePct: body.slippagePct ?? app.defaultSlippagePct,
+            },
+            webhookTradeOpts(translated, body.marketId, sym),
+          )
+          recordEvent({
+            source: "webhook",
+            action: translated,
+            marketId: result.marketId,
+            base: result.base,
+            quote: result.quote,
+            leverage: body.leverage,
+            amountUsdc: body.amountUsdc,
+            status: result.status,
+            txHash: result.txHash,
+            explorer: result.explorer,
+            message: `[strategy ${oa}/${mp}${reversalClose ? " reversal" : ""}] ${result.message}`,
+            durationMs: Date.now() - startedAt,
+          })
+        }
+      } catch (err) {
+        const msg = (err as Error).message
+        recordEvent({
+          source: "webhook",
+          action: "rejected",
+          status: "error",
+          message: msg,
+          durationMs: Date.now() - startedAt,
+        })
+      }
+    })()
   })
 
   // -------- read endpoints --------

@@ -19,6 +19,7 @@ const SORT_GETTERS = {
   openPrice: (p) => p.openPrice,
   markPrice: (p) => p.markPrice,
   pnlPct: (p) => p.pnlPct,
+  feesUsdc: (p) => p.feesUsdc,
   liquidationPrice: (p) => p.liquidationPrice,
   openedAt: (p) => (p.openedAt ? Date.parse(p.openedAt) : 0),
 }
@@ -72,7 +73,7 @@ function render(s) {
   html += "<table><thead><tr>"
   html += th("pair", "pair") + th("side", "side") + th("leverage", "lev")
   html += th("collateralUsdc", "coll") + th("openPrice", "entry") + th("markPrice", "mark")
-  html += th("pnlPct", "pnl") + th("liquidationPrice", "liq") + th("openedAt", "opened")
+  html += th("pnlPct", "pnl") + th("feesUsdc", "fees") + th("liquidationPrice", "liq") + th("openedAt", "opened")
   html += "</tr></thead><tbody>"
   for (const p of sorted) {
     const pair = p.base && p.quote ? (p.base + "/" + p.quote) : ("m" + p.marketId)
@@ -94,6 +95,13 @@ function render(s) {
     html += "<td>" + fmt.num(p.openPrice, 2) + "</td>"
     html += "<td>" + fmt.num(p.markPrice, 2) + "</td>"
     html += '<td class="' + pnlCls + '">' + pnlStr + pnlPctStr + "</td>"
+    const feesStr = p.feesUsdc === null || p.feesUsdc === undefined
+      ? "—"
+      : "-" + p.feesUsdc.toFixed(4)
+    const feesTitle = p.borrowingFeeUsdc !== null && p.borrowingFeeUsdc !== undefined
+      ? "borrowing: " + p.borrowingFeeUsdc.toFixed(4) + " · closing: " + (p.closingFeeUsdc ?? 0).toFixed(4)
+      : ""
+    html += '<td title="' + escapeHtml(feesTitle) + '" class="pnl-neg">' + feesStr + "</td>"
     html += "<td>" + fmt.num(p.liquidationPrice, 2) + "</td>"
     html += '<td title="' + escapeHtml(openedTitle) + '" style="color:var(--dim)">' + openedRel + "</td>"
     html += "</tr>"

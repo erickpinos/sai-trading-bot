@@ -31,6 +31,9 @@ export type OpenPosition = {
   markPrice: number | null // current oracle price (from market borrowing)
   pnlUsdc: number | null // after-fees PnL in USDC (what you'd realize closing now)
   pnlPct: number | null // PnL as % of collateral
+  feesUsdc: number | null // total fees in USDC (borrowing accrued + closing fee that'll be charged)
+  borrowingFeeUsdc: number | null // accrued borrowing fee in USDC
+  closingFeeUsdc: number | null // closing fee in USDC (charged when you close)
   liquidationPrice: number | null
   tp: number | null
   sl: number | null
@@ -48,6 +51,8 @@ type RawPerpTrade = {
   state: {
     pnlCollateralAfterFees: number | null
     pnlPct: number | null
+    borrowingFeeCollateral: number | null
+    closingFeeCollateral: number | null
     liquidationPrice: number | null
   } | null
   openBlock: { block_ts: string } | null
@@ -84,6 +89,8 @@ const OPEN_TRADES_QUERY = `query OpenTrades($trader: String!) {
       state {
         pnlCollateralAfterFees
         pnlPct
+        borrowingFeeCollateral
+        closingFeeCollateral
         liquidationPrice
       }
       openBlock { block_ts }
@@ -130,6 +137,16 @@ export async function getOpenPositions(ctx: SignerCtx): Promise<{
           ? t.state.pnlCollateralAfterFees / SCALE
           : null,
         pnlPct: pnlPctFraction !== null ? pnlPctFraction * 100 : null,
+        borrowingFeeUsdc: t.state?.borrowingFeeCollateral != null
+          ? t.state.borrowingFeeCollateral / SCALE
+          : null,
+        closingFeeUsdc: t.state?.closingFeeCollateral != null
+          ? t.state.closingFeeCollateral / SCALE
+          : null,
+        feesUsdc:
+          t.state?.borrowingFeeCollateral != null && t.state?.closingFeeCollateral != null
+            ? (t.state.borrowingFeeCollateral + t.state.closingFeeCollateral) / SCALE
+            : null,
         liquidationPrice: t.state?.liquidationPrice ?? null,
         tp: t.tp,
         sl: t.sl,

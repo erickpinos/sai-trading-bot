@@ -23,14 +23,22 @@ function render(s) {
   let h = "<table><thead><tr>"
   h += "<th>time</th><th>act</th><th>market</th><th>status</th><th>dur</th>"
   h += "</tr></thead><tbody>"
+  const confirmLabel = (of) =>
+    of === "open_long" ? "LONG ✓"
+    : of === "open_short" ? "SHORT ✓"
+    : of === "reversal-close" ? "REV CLOSE ✓"
+    : of === "close" ? "CLOSE ✓"
+    : "CONFIRM"
   for (const e of events.slice(0, 25)) {
     const sideLbl = e.action === "open_long" ? "LONG"
       : e.action === "open_short" ? "SHORT"
       : e.action === "close" ? "CLOSE"
-      : e.action === "confirm" ? "CONFIRM"
+      : e.action === "confirm" ? confirmLabel(e.confirmOf)
       : e.action.toUpperCase()
     const sidePill = e.action === "open_long" ? "long"
-      : e.action === "open_short" ? "short" : ""
+      : e.action === "open_short" ? "short"
+      : e.action === "confirm" && e.confirmOf === "open_long" ? "long"
+      : e.action === "confirm" && e.confirmOf === "open_short" ? "short" : ""
     const market = e.base && e.quote ? (e.base + "/" + e.quote)
       : e.marketId !== undefined ? ("m" + e.marketId) : "—"
     h += "<tr>"

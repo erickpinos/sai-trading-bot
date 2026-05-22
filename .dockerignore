@@ -1,0 +1,15 @@
+node_modules
+dist
+.env
+.env.local
+*.log
+events.jsonl
+.DS_Store
+.git
+.gitignore
+.gstack
+.claude
+.strategies
+README.md
+LICENSE
+scripts

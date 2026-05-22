@@ -235,13 +235,14 @@ function wireCollapsibles(root = document) {
     const key = COLLAPSE_KEY_PREFIX + id
     if (id && localStorage.getItem(key) === "1") panel.classList.add("collapsed")
 
-    // Prepend chevron button.
+    // Append chevron at the end of the head — flex layout (h2 + auto-margin
+    // on next sibling) pushes it to the far-right corner of the panel head.
     const btn = document.createElement("button")
     btn.type = "button"
     btn.className = "collapse-toggle"
     btn.setAttribute("aria-label", "toggle section")
     btn.innerHTML = '<span class="chev"></span>'
-    head.insertBefore(btn, head.firstChild)
+    head.appendChild(btn)
 
     // Toggle on click anywhere on the head (button or whitespace).
     head.addEventListener("click", (e) => {

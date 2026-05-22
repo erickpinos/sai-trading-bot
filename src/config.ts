@@ -44,7 +44,8 @@ function envBool(key: string, fallback: boolean): boolean {
 export type AppConfig = {
   chain: ChainType
   cfg: ChainCfg
-  mnemonic: string
+  mnemonic: string | null
+  privateKey: string | null
   derivationPath: string
   defaultSlippagePct: string
   dryRun: boolean
@@ -59,8 +60,20 @@ export function loadConfig(opts?: { requireSecret?: boolean }): AppConfig {
   if (!(chain in CHAINS)) {
     throw new Error(`Invalid CHAIN=${chain} (use Mainnet or Testnet2)`)
   }
-  const mnemonic = process.env.MNEMONIC
-  if (!mnemonic) throw new Error("MNEMONIC missing from .env")
+  const baseCfg = CHAINS[chain]
+  const cfg: ChainCfg = {
+    ...baseCfg,
+    evmRpc: envOr("EVM_RPC", baseCfg.evmRpc),
+    saiKeeperEndpoint: envOr("SAI_KEEPER_ENDPOINT", baseCfg.saiKeeperEndpoint),
+  }
+  const mnemonic = process.env.MNEMONIC?.trim() || null
+  const privateKey = process.env.PRIVATE_KEY?.trim() || null
+  if (!mnemonic && !privateKey) {
+    throw new Error("Set MNEMONIC or PRIVATE_KEY in .env")
+  }
+  if (mnemonic && privateKey) {
+    throw new Error("Set only one of MNEMONIC or PRIVATE_KEY in .env, not both")
+  }
 
   const webhookSecret = process.env.WEBHOOK_SECRET ?? ""
   if (opts?.requireSecret && !webhookSecret) {
@@ -69,8 +82,9 @@ export function loadConfig(opts?: { requireSecret?: boolean }): AppConfig {
 
   return {
     chain,
-    cfg: CHAINS[chain],
+    cfg,
     mnemonic,
+    privateKey,
     derivationPath: envOr("DERIVATION_PATH", "m/44'/60'/0'/0/0"),
     defaultSlippagePct: envOr("DEFAULT_SLIPPAGE_PCT", "1"),
     dryRun: envBool("DRY_RUN", false),

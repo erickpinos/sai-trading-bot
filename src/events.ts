@@ -11,6 +11,10 @@ export type TradeEvent = {
   ts: number // ms since epoch
   source: "webhook" | "mcp" | "cli" | "ui" | "strategy"
   action: "open_long" | "open_short" | "close" | "rejected" | "confirm" | "signal"
+  /** For action="confirm", the original action whose tx is being confirmed
+   *  (e.g. "close", "reversal-close", "open_long"). Lets the UI differentiate
+   *  the two confirms from a strategy reversal. */
+  confirmOf?: string
   marketId?: number
   base?: string
   quote?: string
