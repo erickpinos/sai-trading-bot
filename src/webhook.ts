@@ -57,11 +57,21 @@ const CloseByIndexWebhookSchema = z.object({
   userTradeIndex: z.number().int().nonnegative(),
 })
 
+// `long` accepts a bool or a TradingView strategy placeholder string
+// (`{{strategy.market_position_prev}}` resolves to "long" / "short" on a
+// close fill). "true"/"false" are also accepted for raw JSON callers.
 const CloseByMarketWebhookSchema = z.object({
   secret: z.string().min(1),
   action: z.literal("close"),
   marketId: z.number().int().nonnegative(),
-  long: z.boolean(),
+  long: z.union([
+    z.boolean(),
+    z
+      .string()
+      .transform((s) => s.trim().toLowerCase())
+      .pipe(z.enum(["long", "short", "true", "false"]))
+      .transform((s) => s === "long" || s === "true"),
+  ]),
 })
 
 // TradingView strategy alert — accepts raw {{strategy.order.action}} and

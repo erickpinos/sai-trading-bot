@@ -1,8 +1,8 @@
 {
-  "name": "sai-trade-bridge",
+  "name": "sai-trading-bot",
   "version": "0.1.0",
   "private": true,
-  "description": "TradingView + MCP -> sai.fun (Nibiru perps) bridge. Webhook receiver and MCP server that signs and submits perp trades against the Sai EVM interface.",
+  "description": "TradingView + MCP -> sai.fun (Nibiru perps) trading bot. Webhook receiver and MCP server that signs and submits perp trades against the Sai EVM interface.",
   "type": "commonjs",
   "scripts": {
     "webhook": "tsx src/webhook.ts",

@@ -269,81 +269,99 @@
       <div class="col">
         <div class="col-label">Inputs</div>
 
-        <!-- Trade target (shared market picker — drives JSON snippets + manual form) -->
-        <section class="panel" id="targetPanel">
+        <!-- TradingView alert_message builder (market picker lives inside) -->
+        <section class="panel" id="alertBuilder">
           <div class="panel-head">
-            <h2>Trade target</h2>
-            <span class="pill idle" id="targetPill">—</span>
-          </div>
-          <div class="form" style="margin-top:6px">
-            <div class="form-row">
-              <label>market</label>
-              <select id="marketSel"><option value="">loading…</option></select>
-            </div>
-            <div class="src-stat" id="targetMeta" style="margin-top:4px">
-              <span>id: <span class="n" id="targetId">—</span></span>
-              <span>px: <span class="n" id="targetPx">—</span></span>
-              <span>maxLev: <span class="n" id="targetMaxLev">—</span></span>
-            </div>
-          </div>
-        </section>
-
-        <!-- TradingView -->
-        <section class="panel">
-          <div class="panel-head">
-            <h2>TradingView webhook</h2>
+            <h2>TradingView alert message</h2>
             <span class="pill idle" id="srcTvPill">idle</span>
           </div>
           <div class="src-stat">
             <span>events: <span class="n" id="srcTvCount">0</span></span>
             <span>last: <span class="lt" id="srcTvLast">—</span></span>
           </div>
-          <details>
-            <summary>setup guide — connect a TradingView alert</summary>
+
+          <p class="step-intro" style="margin:10px 0 6px">One alert, all signals. The bridge reads <code>{{strategy.order.action}}</code> + <code>{{strategy.market_position}}</code> and routes entries and exits automatically. Set <i>Condition</i> = your strategy with <i>Order fills only</i>.</p>
+
+          <div class="form" style="margin:10px 0 4px">
+            <div class="form-row">
+              <label>market</label>
+              <select id="marketSel"><option value="">loading…</option></select>
+              <span class="pill idle" id="targetPill">—</span>
+            </div>
+            <div class="src-stat" id="targetMeta" style="margin:-2px 0 6px">
+              <span>id: <span class="n" id="targetId">—</span></span>
+              <span>px: <span class="n" id="targetPx">—</span></span>
+              <span>maxLev: <span class="n" id="targetMaxLev">—</span></span>
+            </div>
+            <div class="form-row">
+              <label>sizing</label>
+              <div class="seg" id="ambSizeSeg">
+                <button type="button" data-mode="fixed" class="active">fixed</button>
+                <button type="button" data-mode="dynamic">dynamic (Pine)</button>
+              </div>
+            </div>
+            <div class="form-row" data-fixed-only>
+              <label>leverage</label>
+              <input id="ambLev" type="number" min="1" step="1" value="2" />
+            </div>
+            <div class="form-row" data-fixed-only>
+              <label>collateral</label>
+              <input id="ambAmt" type="number" min="0.01" step="0.01" value="5" />
+              <span class="meta">USDC</span>
+            </div>
+            <div class="form-row" data-fixed-only>
+              <label>slippage</label>
+              <input id="ambSlp" type="number" min="0.1" step="0.1" value="1" />
+              <span class="meta">%</span>
+            </div>
+          </div>
+
+          <p class="field-label">→ paste into TradingView's <b>Message</b> field</p>
+          <div class="code-block" id="ambAlertMsg" data-copy>—</div>
+          <p class="hint" id="ambHint">Hardcoded leverage / collateral / slippage. Same size on every signal. Switch to <b>dynamic</b> if you want Pine to compute size per trade (e.g. % of account, ATR-scaled, etc.).</p>
+
+          <p class="field-label">→ paste into TradingView's <b>Webhook URL</b> field</p>
+          <div class="code-block" id="tvUrl" data-copy>—</div>
+
+          <div id="ambPineWrap" style="display:none">
+            <p class="field-label">→ Pine Script — embed dynamic <code>alert_message=</code> per order</p>
+            <div class="code-block" id="ambPine" data-copy>—</div>
+            <p class="hint">Compute size in Pine, then pass it via <code>alert_message=</code> on each <code>strategy.entry()</code>. In the TradingView alert dialog, the <i>Message</i> field is just <code>{{strategy.order.alert_message}}</code> — Pine fills in the per-order JSON.</p>
+          </div>
+
+          <details style="margin-top:10px">
+            <summary>step-by-step setup</summary>
             <div class="helper-body">
-              <p class="step-intro">One alert per signal you want to act on. Requires a TradingView <b>Pro+ plan</b> (webhooks are paid-only). Setup takes ~1 min per alert.</p>
-
+              <p class="step-intro">Requires a TradingView <b>Pro+ plan</b> (webhooks are paid-only). ~1 min setup.</p>
               <ol class="steps">
-                <li>
-                  <b>Open a chart</b> for the asset you want to trade (e.g. BTCUSDT) and add your strategy or indicator.
-                </li>
-
-                <li>
-                  <b>Click the Alert button</b> in TradingView's top toolbar (clock icon, between <i>Indicators</i> and <i>Replay</i>), or press <code>Alt+A</code>. The <i>Create Alert on …</i> dialog opens.
-                </li>
-
-                <li>
-                  In the <b>Settings</b> tab, set <i>Condition</i> to the strategy event that should fire this alert. Leave <i>Expiration</i> as Open-ended. Name the alert anything.
-                  <p class="hint">Then paste one of the JSON payloads below into the <b>Message</b> field — pick the one matching the action this alert fires on:</p>
-
-                  <p class="field-label">→ open LONG (entry signal)</p>
-                  <div class="code-block" id="tvOpenLong" data-copy>—</div>
-
-                  <p class="field-label">→ open SHORT (entry signal)</p>
-                  <div class="code-block" id="tvOpenShort" data-copy>—</div>
-
-                  <p class="field-label">→ close position (by market + side)</p>
-                  <div class="code-block" id="tvClose" data-copy>—</div>
-
-                  <p class="field-label">→ close exact trade by index</p>
-                  <div class="code-block" id="tvCloseByIndex" data-copy>—</div>
-
-                  <p class="field-label">→ Pine strategy (single alert for entries + exits)</p>
-                  <div class="code-block" id="tvStrategy" data-copy>—</div>
-                  <p class="hint">For TradingView <b>Strategy</b> alerts (set <i>Condition</i> = your strategy + <i>Order fills only</i>). The bridge reads <code>{{strategy.order.action}}</code> + <code>{{strategy.market_position}}</code> and translates buy/sell/flat → open_long/open_short/close.</p>
-
-                  <p class="hint">Replace <code>&lt;YOUR_WEBHOOK_SECRET&gt;</code> with the value of <code>WEBHOOK_SECRET</code> from your <code>.env</code>. The bridge rejects payloads without it.</p>
-                </li>
-
-                <li>
-                  Switch to the <b>Notifications</b> tab. Check <b>Webhook URL</b> and paste:
-                  <div class="code-block" id="tvUrl" data-copy>—</div>
-                </li>
-
-                <li>
-                  Click <b>Create</b>. Done — when the strategy fires, the signal lands in the Activity log on the left and (if not in dry-run) opens the trade.
-                </li>
+                <li><b>Open a chart</b> with your strategy attached.</li>
+                <li><b>Press <code>Alt+A</code></b> or click the alert (clock) icon. The <i>Create Alert</i> dialog opens.</li>
+                <li>In <b>Settings</b>: <i>Condition</i> = your strategy, with <i>Order fills only</i>. Expiration = Open-ended.</li>
+                <li>Paste the <b>Message</b> field above into the <i>Message</i> box.</li>
+                <li>Switch to <b>Notifications</b>. Check <i>Webhook URL</i> and paste the URL above.</li>
+                <li>Replace <code>&lt;YOUR_WEBHOOK_SECRET&gt;</code> with the <code>WEBHOOK_SECRET</code> value from your <code>.env</code>.</li>
+                <li>Click <b>Create</b>. Signals will land in the Activity log on the right.</li>
               </ol>
+            </div>
+          </details>
+
+          <details style="margin-top:6px">
+            <summary>other payload variants (entry-only, exit-only, by index)</summary>
+            <div class="helper-body">
+              <p class="hint">Useful if your strategy uses separate alerts per signal (one for entries, one for exits) instead of a single Pine strategy alert.</p>
+
+              <p class="field-label">→ open LONG (entry-only alert)</p>
+              <div class="code-block" id="tvOpenLong" data-copy>—</div>
+
+              <p class="field-label">→ open SHORT (entry-only alert)</p>
+              <div class="code-block" id="tvOpenShort" data-copy>—</div>
+
+              <p class="field-label">→ close position (by market + side)</p>
+              <div class="code-block" id="tvClose" data-copy>—</div>
+              <p class="hint">Uses <code>{{strategy.market_position_prev}}</code> — one alert closes whichever side was open.</p>
+
+              <p class="field-label">→ close exact trade by index</p>
+              <div class="code-block" id="tvCloseByIndex" data-copy>—</div>
             </div>
           </details>
         </section>
@@ -610,31 +628,105 @@
       lvEl.textContent = m.maxLeverage + "x"
     }
 
-    function renderWebhookSnippets() {
+    let ambMode = "fixed"
+
+    function ambInputs() {
       const m = currentMarket()
       const marketId = m ? m.marketId : 0
+      const pair = m ? m.base + "/" + m.quote : "market"
+      const lev = Number(document.getElementById("ambLev").value) || 2
+      const amt = String(document.getElementById("ambAmt").value || "5")
+      const slp = String(document.getElementById("ambSlp").value || "1")
+      return { marketId, pair, lev, amt, slp }
+    }
+
+    function renderWebhookSnippets() {
+      const { marketId, pair, lev, amt, slp } = ambInputs()
+
+      // Primary: the single alert message for a Pine strategy alert.
+      // Fixed mode hardcodes size; dynamic mode defers to per-order alert_message.
+      if (ambMode === "fixed") {
+        setCode("ambAlertMsg", JSON.stringify({
+          secret: "<YOUR_WEBHOOK_SECRET>", action: "strategy",
+          marketId, leverage: lev, amountUsdc: amt, slippagePct: slp,
+          orderAction: "{{strategy.order.action}}",
+          marketPosition: "{{strategy.market_position}}",
+        }, null, 2))
+        document.getElementById("ambPineWrap").style.display = "none"
+      } else {
+        setCode("ambAlertMsg", "{{strategy.order.alert_message}}")
+        const pine = buildPineSnippet({ marketId, pair, lev, slp })
+        setCode("ambPine", pine)
+        document.getElementById("ambPineWrap").style.display = "block"
+      }
+
+      // Toggle visibility of size inputs in dynamic mode.
+      for (const el of document.querySelectorAll('[data-fixed-only]')) {
+        el.style.display = ambMode === "fixed" ? "" : "none"
+      }
+
+      // Secondary: standalone payload variants for entry-only / exit-only alerts.
       setCode("tvOpenLong", JSON.stringify({
         secret: "<YOUR_WEBHOOK_SECRET>", action: "open_long",
-        marketId, leverage: 2, amountUsdc: "5", slippagePct: "1",
+        marketId, leverage: lev, amountUsdc: amt, slippagePct: slp,
       }, null, 2))
       setCode("tvOpenShort", JSON.stringify({
         secret: "<YOUR_WEBHOOK_SECRET>", action: "open_short",
-        marketId, leverage: 2, amountUsdc: "5", slippagePct: "1",
+        marketId, leverage: lev, amountUsdc: amt, slippagePct: slp,
       }, null, 2))
       setCode("tvClose", JSON.stringify({
         secret: "<YOUR_WEBHOOK_SECRET>", action: "close",
-        marketId, long: true,
+        marketId, long: "{{strategy.market_position_prev}}",
       }, null, 2))
       setCode("tvCloseByIndex", JSON.stringify({
         secret: "<YOUR_WEBHOOK_SECRET>", action: "close",
         userTradeIndex: 42,
       }, null, 2))
-      setCode("tvStrategy", JSON.stringify({
-        secret: "<YOUR_WEBHOOK_SECRET>", action: "strategy",
-        marketId, leverage: 2, amountUsdc: "5", slippagePct: "1",
-        orderAction: "{{strategy.order.action}}",
-        marketPosition: "{{strategy.market_position}}",
-      }, null, 2))
+    }
+
+    function buildPineSnippet({ marketId, pair, lev, slp }) {
+      // Skeleton showing how to size per-signal in Pine and pass JSON via
+      // alert_message=. The actual entry/exit conditions are user-supplied.
+      return [
+        '//@version=5',
+        'strategy("sai-bridge — ' + pair + '", overlay=true)',
+        '',
+        '// === bridge config ===',
+        'secret = "<YOUR_WEBHOOK_SECRET>"',
+        'mktId  = ' + marketId,
+        'lev    = ' + lev,
+        'slpPct = "' + slp + '"',
+        '',
+        '// === sizing — replace with your own rule ===',
+        '// example: 1% of a 1000 USDC account per signal',
+        'acctUsdc = 1000.0',
+        'riskPct  = 0.01',
+        'amtUsdc  = str.tostring(acctUsdc * riskPct, "#.##")',
+        '',
+        '// === alert payloads built per order ===',
+        'msgOpen(side) =>',
+        '    \'{"secret":"\' + secret + \'","action":"open_\' + side + \'",\' +',
+        '    \'"marketId":\' + str.tostring(mktId) + \',\' +',
+        '    \'"leverage":\' + str.tostring(lev) + \',\' +',
+        '    \'"amountUsdc":"\' + amtUsdc + \'",\' +',
+        '    \'"slippagePct":"\' + slpPct + \'"}\'',
+        '',
+        'msgClose = \'{"secret":"\' + secret + \'","action":"close",\' +',
+        '    \'"marketId":\' + str.tostring(mktId) + \',\' +',
+        '    \'"long":"{{strategy.market_position_prev}}"}\'',
+        '',
+        '// === your entry / exit conditions ===',
+        'longCond  = ta.crossover(ta.sma(close, 9),  ta.sma(close, 21))',
+        'shortCond = ta.crossunder(ta.sma(close, 9), ta.sma(close, 21))',
+        'exitCond  = false  // wire your own exit',
+        '',
+        'if longCond',
+        '    strategy.entry("L", strategy.long,  alert_message = msgOpen("long"))',
+        'if shortCond',
+        '    strategy.entry("S", strategy.short, alert_message = msgOpen("short"))',
+        'if exitCond',
+        '    strategy.close_all(alert_message = msgClose)',
+      ].join("\n")
     }
 
     function renderSource(idKey, dataKey) {
@@ -867,6 +959,27 @@
       const id = document.getElementById("marketSel").value
       if (id) localStorage.setItem("targetMarketId", id)
       renderTargetMeta(currentMarket())
+      renderWebhookSnippets()
+    })
+
+    // alert-message-builder inputs — regenerate on every keystroke
+    for (const id of ["ambLev", "ambAmt", "ambSlp"]) {
+      document.getElementById(id).addEventListener("input", renderWebhookSnippets)
+    }
+
+    document.getElementById("ambSizeSeg").addEventListener("click", (e) => {
+      const target = e.target
+      if (!(target instanceof HTMLButtonElement)) return
+      const m = target.dataset.mode
+      if (!m) return
+      ambMode = m
+      for (const b of document.querySelectorAll("#ambSizeSeg button")) {
+        b.classList.toggle("active", b.dataset.mode === ambMode)
+      }
+      const hint = document.getElementById("ambHint")
+      hint.innerHTML = ambMode === "fixed"
+        ? 'Hardcoded leverage / collateral / slippage. Same size on every signal. Switch to <b>dynamic</b> if you want Pine to compute size per trade (e.g. % of account, ATR-scaled, etc.).'
+        : 'In the TradingView alert dialog, the entire <b>Message</b> field is just <code>{{strategy.order.alert_message}}</code>. The JSON is assembled in Pine — see the snippet below for the pattern.'
       renderWebhookSnippets()
     })
 
