@@ -1,0 +1,56 @@
+<!-- TradingView alert_message builder (market picker lives inside) -->
+<section class="panel" id="alertBuilder" data-collapsible>
+  <div class="panel-head">
+    <h2>TradingView alert message</h2>
+  </div>
+
+  <p style="margin:10px 0 6px; color:var(--muted); font-size:10.5px">Pick a market, set leverage / collateral / slippage, then paste the payload that matches your alert (entry-long, entry-short, or close) into TradingView's <i>Message</i> field.</p>
+
+  <div class="form" style="margin:10px 0 4px">
+    <div class="form-row">
+      <label>market</label>
+      <select id="marketSel"><option value="">loading…</option></select>
+      <span class="pill idle" id="targetPill">—</span>
+    </div>
+    <div class="src-stat" id="targetMeta" style="margin:-2px 0 6px">
+      <span>id: <span class="n" id="targetId">—</span></span>
+      <span>px: <span class="n" id="targetPx">—</span></span>
+      <span>maxLev: <span class="n" id="targetMaxLev">—</span></span>
+    </div>
+    <div class="form-row">
+      <label>leverage</label>
+      <input id="ambLev" type="number" min="1" step="1" value="2" />
+    </div>
+    <div class="form-row">
+      <label>collateral</label>
+      <input id="ambAmt" type="number" min="0.01" step="0.01" value="5" />
+      <span class="meta">USDC</span>
+    </div>
+    <div class="form-row">
+      <label>slippage</label>
+      <input id="ambSlp" type="number" min="0.1" step="0.1" value="1" />
+      <span class="meta">%</span>
+    </div>
+  </div>
+
+  <p class="field-label">→ paste into TradingView's <b>Webhook URL</b> field</p>
+  <div class="code-block" id="tvUrl" data-copy style="display:none">—</div>
+  <div class="tunnel-bar">
+    <span class="pill idle" id="tunnelPill">—</span>
+    <span class="tunnel-msg" id="tunnelMsg">checking tunnel…</span>
+    <button class="btn sm" id="tunnelBtn" type="button" style="display:none">start tunnel</button>
+  </div>
+
+  <p class="field-label">→ paste into TradingView's <b>Message body</b> field</p>
+  <div class="code-block" id="tvStrategy" data-copy>—</div>
+  <p style="color:var(--dim); font-size:10px; margin:4px 0 0; font-style:italic">Set the TradingView alert <i>Condition</i> to your Pine strategy with <i>Order fills only</i>. The bridge reads <code>{{strategy.order.action}}</code> + <code>{{strategy.market_position}}</code> and routes to open / close.</p>
+
+  <p class="field-label">→ open LONG (Message body)</p>
+  <div class="code-block" id="tvOpenLong" data-copy>—</div>
+
+  <p class="field-label">→ open SHORT (Message body)</p>
+  <div class="code-block" id="tvOpenShort" data-copy>—</div>
+
+  <p class="field-label">→ close trade by index (Message body)</p>
+  <div class="code-block" id="tvCloseByIndex" data-copy>—</div>
+</section>

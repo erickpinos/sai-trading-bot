@@ -9,8 +9,8 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 export type TradeEvent = {
   id: number
   ts: number // ms since epoch
-  source: "webhook" | "mcp" | "cli" | "ui"
-  action: "open_long" | "open_short" | "close" | "rejected" | "confirm"
+  source: "webhook" | "mcp" | "cli" | "ui" | "strategy"
+  action: "open_long" | "open_short" | "close" | "rejected" | "confirm" | "signal"
   marketId?: number
   base?: string
   quote?: string
