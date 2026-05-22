@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>sai-trade-bridge</title>
+  <title>sai-trading-bot</title>
   <style>
     :root {
       --bg: #0b0d10;
@@ -61,10 +61,8 @@
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn.engaged { background: var(--red-bg); border-color: #5a2424; color: var(--red); }
     .btn.dry-on { background: var(--amber-bg); border-color: #5a4124; color: var(--amber); }
-    .btn.green { background: var(--green-bg); border-color: #1f5a2f; color: var(--green); }
     .btn.red { background: var(--red-bg); border-color: #5a2424; color: var(--red); }
     .btn.sm { padding: 3px 8px; font-size: 11px; }
-    .btn.lg { padding: 9px 14px; font-size: 13px; font-weight: 600; }
 
     /* I/O grid layout */
     main {
@@ -167,7 +165,7 @@
     .stat .val { font-size: 24px; font-weight: 600; }
     .stat .label { color: var(--muted); font-size: 11px; margin-top: 2px; }
 
-    /* Trade form (lives in UI input panel) */
+    /* Alert-builder inputs */
     .form { display: flex; flex-direction: column; gap: 8px; font-family: var(--mono); font-size: 12px; }
     .form-row { display: flex; gap: 6px; align-items: center; }
     .form-row label { color: var(--muted); min-width: 60px; font-size: 11px; }
@@ -176,45 +174,9 @@
       padding: 5px 7px; border-radius: 4px; font-family: var(--mono); font-size: 11.5px;
     }
     .form-row input:focus, .form-row select:focus { outline: none; border-color: var(--accent); }
-    .seg { display: flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; flex: 1; }
-    .seg button {
-      flex: 1; background: var(--bg); border: none; color: var(--muted);
-      padding: 5px 6px; cursor: pointer; font-family: var(--mono); font-size: 11.5px;
-    }
-    .seg button.active.long { background: var(--green-bg); color: var(--green); }
-    .seg button.active.short { background: var(--red-bg); color: var(--red); }
 
-    /* Helpers (TradingView/MCP setup blocks) */
-    details {
-      border: 1px solid var(--border); background: var(--panel-2);
-      border-radius: 5px; padding: 0; margin-top: 6px;
-    }
-    details summary {
-      cursor: pointer; padding: 7px 10px; font-size: 11px;
-      color: var(--muted); font-family: var(--mono);
-      list-style: none; user-select: none;
-    }
-    details summary::-webkit-details-marker { display: none; }
-    details summary::before { content: "▸ "; }
-    details[open] summary::before { content: "▾ "; }
-    details[open] summary { border-bottom: 1px solid var(--border); }
-    .helper-body { padding: 8px 10px; font-size: 11px; }
-    .helper-body p { margin: 0 0 6px; color: var(--muted); font-size: 10.5px; }
-    .helper-body ol.steps { margin: 0; padding-left: 20px; font-size: 11px; color: var(--text); }
-    .helper-body ol.steps li { margin-bottom: 10px; line-height: 1.55; }
-    .helper-body ol.steps li:last-child { margin-bottom: 0; }
-    .helper-body ol.steps li b { color: var(--text); font-weight: 600; }
-    .helper-body .step-intro {
-      color: var(--muted); font-size: 10.5px; margin-bottom: 10px;
-      padding-bottom: 8px; border-bottom: 1px dashed var(--border);
-    }
-    .helper-body .field-label {
+    .field-label {
       color: var(--accent); margin: 8px 0 2px; font-size: 10.5px; font-family: var(--mono);
-    }
-    .helper-body .hint { color: var(--dim); font-size: 10px; margin-top: 4px; font-style: italic; }
-    .helper-body code {
-      font-family: var(--mono); color: var(--text); background: var(--bg);
-      padding: 1px 5px; border-radius: 3px; font-size: 10px; border: 1px solid var(--border);
     }
     .code-block {
       position: relative; background: var(--bg); border: 1px solid var(--border);
@@ -230,13 +192,6 @@
     }
     .code-block .copy-btn:hover { color: var(--text); }
     .code-block .copy-btn.ok { color: var(--green); border-color: #1f5a2f; }
-
-    .result-toast {
-      margin-top: 6px; padding: 6px 8px; border-radius: 4px;
-      font-family: var(--mono); font-size: 10.5px;
-    }
-    .result-toast.ok { background: var(--green-bg); color: var(--green); }
-    .result-toast.err { background: var(--red-bg); color: var(--red); }
 
     .footer {
       padding: 14px 24px; text-align: center; color: var(--muted);
@@ -254,7 +209,7 @@
   <header>
     <h1>
       <span id="modeDot" class="dot"></span>
-      sai-trade-bridge
+      sai-trading-bot
     </h1>
     <span class="meta" id="meta">loading…</span>
     <div class="header-actions">
@@ -280,7 +235,7 @@
             <span>last: <span class="lt" id="srcTvLast">—</span></span>
           </div>
 
-          <p class="step-intro" style="margin:10px 0 6px">One alert, all signals. The bridge reads <code>{{strategy.order.action}}</code> + <code>{{strategy.market_position}}</code> and routes entries and exits automatically. Set <i>Condition</i> = your strategy with <i>Order fills only</i>.</p>
+          <p style="margin:10px 0 6px; color:var(--muted); font-size:10.5px">Pick a market, set leverage / collateral / slippage, then paste the payload that matches your alert (entry-long, entry-short, or close) into TradingView's <i>Message</i> field.</p>
 
           <div class="form" style="margin:10px 0 4px">
             <div class="form-row">
@@ -294,153 +249,32 @@
               <span>maxLev: <span class="n" id="targetMaxLev">—</span></span>
             </div>
             <div class="form-row">
-              <label>sizing</label>
-              <div class="seg" id="ambSizeSeg">
-                <button type="button" data-mode="fixed" class="active">fixed</button>
-                <button type="button" data-mode="dynamic">dynamic (Pine)</button>
-              </div>
-            </div>
-            <div class="form-row" data-fixed-only>
               <label>leverage</label>
               <input id="ambLev" type="number" min="1" step="1" value="2" />
             </div>
-            <div class="form-row" data-fixed-only>
+            <div class="form-row">
               <label>collateral</label>
               <input id="ambAmt" type="number" min="0.01" step="0.01" value="5" />
               <span class="meta">USDC</span>
             </div>
-            <div class="form-row" data-fixed-only>
+            <div class="form-row">
               <label>slippage</label>
               <input id="ambSlp" type="number" min="0.1" step="0.1" value="1" />
               <span class="meta">%</span>
             </div>
           </div>
 
-          <p class="field-label">→ paste into TradingView's <b>Message</b> field</p>
-          <div class="code-block" id="ambAlertMsg" data-copy>—</div>
-          <p class="hint" id="ambHint">Hardcoded leverage / collateral / slippage. Same size on every signal. Switch to <b>dynamic</b> if you want Pine to compute size per trade (e.g. % of account, ATR-scaled, etc.).</p>
-
           <p class="field-label">→ paste into TradingView's <b>Webhook URL</b> field</p>
           <div class="code-block" id="tvUrl" data-copy>—</div>
 
-          <div id="ambPineWrap" style="display:none">
-            <p class="field-label">→ Pine Script — embed dynamic <code>alert_message=</code> per order</p>
-            <div class="code-block" id="ambPine" data-copy>—</div>
-            <p class="hint">Compute size in Pine, then pass it via <code>alert_message=</code> on each <code>strategy.entry()</code>. In the TradingView alert dialog, the <i>Message</i> field is just <code>{{strategy.order.alert_message}}</code> — Pine fills in the per-order JSON.</p>
-          </div>
+          <p class="field-label">→ open LONG (Message body)</p>
+          <div class="code-block" id="tvOpenLong" data-copy>—</div>
 
-          <details style="margin-top:10px">
-            <summary>step-by-step setup</summary>
-            <div class="helper-body">
-              <p class="step-intro">Requires a TradingView <b>Pro+ plan</b> (webhooks are paid-only). ~1 min setup.</p>
-              <ol class="steps">
-                <li><b>Open a chart</b> with your strategy attached.</li>
-                <li><b>Press <code>Alt+A</code></b> or click the alert (clock) icon. The <i>Create Alert</i> dialog opens.</li>
-                <li>In <b>Settings</b>: <i>Condition</i> = your strategy, with <i>Order fills only</i>. Expiration = Open-ended.</li>
-                <li>Paste the <b>Message</b> field above into the <i>Message</i> box.</li>
-                <li>Switch to <b>Notifications</b>. Check <i>Webhook URL</i> and paste the URL above.</li>
-                <li>Replace <code>&lt;YOUR_WEBHOOK_SECRET&gt;</code> with the <code>WEBHOOK_SECRET</code> value from your <code>.env</code>.</li>
-                <li>Click <b>Create</b>. Signals will land in the Activity log on the right.</li>
-              </ol>
-            </div>
-          </details>
+          <p class="field-label">→ open SHORT (Message body)</p>
+          <div class="code-block" id="tvOpenShort" data-copy>—</div>
 
-          <details style="margin-top:6px">
-            <summary>other payload variants (entry-only, exit-only, by index)</summary>
-            <div class="helper-body">
-              <p class="hint">Useful if your strategy uses separate alerts per signal (one for entries, one for exits) instead of a single Pine strategy alert.</p>
-
-              <p class="field-label">→ open LONG (entry-only alert)</p>
-              <div class="code-block" id="tvOpenLong" data-copy>—</div>
-
-              <p class="field-label">→ open SHORT (entry-only alert)</p>
-              <div class="code-block" id="tvOpenShort" data-copy>—</div>
-
-              <p class="field-label">→ close position (by market + side)</p>
-              <div class="code-block" id="tvClose" data-copy>—</div>
-              <p class="hint">Uses <code>{{strategy.market_position_prev}}</code> — one alert closes whichever side was open.</p>
-
-              <p class="field-label">→ close exact trade by index</p>
-              <div class="code-block" id="tvCloseByIndex" data-copy>—</div>
-            </div>
-          </details>
-        </section>
-
-        <!-- MCP -->
-        <section class="panel">
-          <div class="panel-head">
-            <h2>MCP (Claude / Cursor)</h2>
-            <span class="pill idle" id="srcMcpPill">idle</span>
-          </div>
-          <div class="src-stat">
-            <span>events: <span class="n" id="srcMcpCount">0</span></span>
-            <span>last: <span class="lt" id="srcMcpLast">—</span></span>
-          </div>
-          <details>
-            <summary>show MCP config snippet</summary>
-            <div class="helper-body">
-              <p>Add to your MCP config (Claude Desktop / Code). Tools: open_long, open_short, close_trade, list_markets, get_wallet.</p>
-              <div class="code-block" id="mcpJson" data-copy>—</div>
-            </div>
-          </details>
-        </section>
-
-        <!-- Web UI (manual trade form) -->
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Web UI (manual)</h2>
-            <span class="pill idle" id="srcUiPill">idle</span>
-          </div>
-          <div class="src-stat" style="margin-bottom:8px">
-            <span>events: <span class="n" id="srcUiCount">0</span></span>
-            <span>last: <span class="lt" id="srcUiLast">—</span></span>
-          </div>
-          <div class="form">
-            <div class="form-row">
-              <label>side</label>
-              <div class="seg" id="sideSeg">
-                <button type="button" data-side="long" class="active long">LONG</button>
-                <button type="button" data-side="short">SHORT</button>
-              </div>
-            </div>
-            <div class="form-row">
-              <label>leverage</label>
-              <input id="levInp" type="number" min="1" step="1" value="2" />
-            </div>
-            <div class="form-row">
-              <label>collateral</label>
-              <input id="amtInp" type="number" min="0.01" step="0.01" value="5" />
-              <span class="meta">USDC</span>
-            </div>
-            <div class="form-row">
-              <label>slippage</label>
-              <input id="slpInp" type="number" min="0.1" step="0.1" value="1" />
-              <span class="meta">%</span>
-            </div>
-            <button class="btn lg green" id="fireBtn" type="button">fire trade →</button>
-            <div id="tradeResult"></div>
-          </div>
-        </section>
-
-        <!-- CLI -->
-        <section class="panel">
-          <div class="panel-head">
-            <h2>CLI</h2>
-            <span class="pill idle" id="srcCliPill">idle</span>
-          </div>
-          <div class="src-stat">
-            <span>events: <span class="n" id="srcCliCount">0</span></span>
-            <span>last: <span class="lt" id="srcCliLast">—</span></span>
-          </div>
-          <details>
-            <summary>show CLI commands</summary>
-            <div class="helper-body">
-              <p>Run from <code style="color:var(--text)">~/Code/sai-trade-bridge</code>:</p>
-              <div class="code-block" data-copy>DRY_RUN=true npx tsx src/cli-open.ts 1 long 2 5</div>
-              <div class="code-block" data-copy>npx tsx src/cli-close.ts --market 1 --side long</div>
-              <div class="code-block" data-copy>npx tsx src/cli-close.ts --index 42</div>
-            </div>
-          </details>
+          <p class="field-label">→ close trade by index (Message body)</p>
+          <div class="code-block" id="tvCloseByIndex" data-copy>—</div>
         </section>
       </div>
 
@@ -524,7 +358,6 @@
     }
 
     let state = null
-    let side = "long"
     const SECRET_KEY = "saitb_secret_v1"
 
     function getSecret() { return sessionStorage.getItem(SECRET_KEY) || "" }
@@ -594,9 +427,9 @@
           opt.textContent = m.base + "/" + m.quote + " · #" + m.marketId + " · $" + px + " · " + m.maxLeverage + "x max"
           sel.appendChild(opt)
         }
-        // Restore prior selection or default to first.
         if (cur && sorted.some((m) => String(m.marketId) === cur)) sel.value = cur
         renderTargetMeta(currentMarket())
+        renderWebhookSnippets()
       } catch {
         sel.innerHTML = '<option value="">error loading markets</option>'
         renderTargetMeta(null)
@@ -628,44 +461,17 @@
       lvEl.textContent = m.maxLeverage + "x"
     }
 
-    let ambMode = "fixed"
-
     function ambInputs() {
       const m = currentMarket()
       const marketId = m ? m.marketId : 0
-      const pair = m ? m.base + "/" + m.quote : "market"
       const lev = Number(document.getElementById("ambLev").value) || 2
       const amt = String(document.getElementById("ambAmt").value || "5")
       const slp = String(document.getElementById("ambSlp").value || "1")
-      return { marketId, pair, lev, amt, slp }
+      return { marketId, lev, amt, slp }
     }
 
     function renderWebhookSnippets() {
-      const { marketId, pair, lev, amt, slp } = ambInputs()
-
-      // Primary: the single alert message for a Pine strategy alert.
-      // Fixed mode hardcodes size; dynamic mode defers to per-order alert_message.
-      if (ambMode === "fixed") {
-        setCode("ambAlertMsg", JSON.stringify({
-          secret: "<YOUR_WEBHOOK_SECRET>", action: "strategy",
-          marketId, leverage: lev, amountUsdc: amt, slippagePct: slp,
-          orderAction: "{{strategy.order.action}}",
-          marketPosition: "{{strategy.market_position}}",
-        }, null, 2))
-        document.getElementById("ambPineWrap").style.display = "none"
-      } else {
-        setCode("ambAlertMsg", "{{strategy.order.alert_message}}")
-        const pine = buildPineSnippet({ marketId, pair, lev, slp })
-        setCode("ambPine", pine)
-        document.getElementById("ambPineWrap").style.display = "block"
-      }
-
-      // Toggle visibility of size inputs in dynamic mode.
-      for (const el of document.querySelectorAll('[data-fixed-only]')) {
-        el.style.display = ambMode === "fixed" ? "" : "none"
-      }
-
-      // Secondary: standalone payload variants for entry-only / exit-only alerts.
+      const { marketId, lev, amt, slp } = ambInputs()
       setCode("tvOpenLong", JSON.stringify({
         secret: "<YOUR_WEBHOOK_SECRET>", action: "open_long",
         marketId, leverage: lev, amountUsdc: amt, slippagePct: slp,
@@ -674,59 +480,10 @@
         secret: "<YOUR_WEBHOOK_SECRET>", action: "open_short",
         marketId, leverage: lev, amountUsdc: amt, slippagePct: slp,
       }, null, 2))
-      setCode("tvClose", JSON.stringify({
-        secret: "<YOUR_WEBHOOK_SECRET>", action: "close",
-        marketId, long: "{{strategy.market_position_prev}}",
-      }, null, 2))
       setCode("tvCloseByIndex", JSON.stringify({
         secret: "<YOUR_WEBHOOK_SECRET>", action: "close",
         userTradeIndex: 42,
       }, null, 2))
-    }
-
-    function buildPineSnippet({ marketId, pair, lev, slp }) {
-      // Skeleton showing how to size per-signal in Pine and pass JSON via
-      // alert_message=. The actual entry/exit conditions are user-supplied.
-      return [
-        '//@version=5',
-        'strategy("sai-bridge — ' + pair + '", overlay=true)',
-        '',
-        '// === bridge config ===',
-        'secret = "<YOUR_WEBHOOK_SECRET>"',
-        'mktId  = ' + marketId,
-        'lev    = ' + lev,
-        'slpPct = "' + slp + '"',
-        '',
-        '// === sizing — replace with your own rule ===',
-        '// example: 1% of a 1000 USDC account per signal',
-        'acctUsdc = 1000.0',
-        'riskPct  = 0.01',
-        'amtUsdc  = str.tostring(acctUsdc * riskPct, "#.##")',
-        '',
-        '// === alert payloads built per order ===',
-        'msgOpen(side) =>',
-        '    \'{"secret":"\' + secret + \'","action":"open_\' + side + \'",\' +',
-        '    \'"marketId":\' + str.tostring(mktId) + \',\' +',
-        '    \'"leverage":\' + str.tostring(lev) + \',\' +',
-        '    \'"amountUsdc":"\' + amtUsdc + \'",\' +',
-        '    \'"slippagePct":"\' + slpPct + \'"}\'',
-        '',
-        'msgClose = \'{"secret":"\' + secret + \'","action":"close",\' +',
-        '    \'"marketId":\' + str.tostring(mktId) + \',\' +',
-        '    \'"long":"{{strategy.market_position_prev}}"}\'',
-        '',
-        '// === your entry / exit conditions ===',
-        'longCond  = ta.crossover(ta.sma(close, 9),  ta.sma(close, 21))',
-        'shortCond = ta.crossunder(ta.sma(close, 9), ta.sma(close, 21))',
-        'exitCond  = false  // wire your own exit',
-        '',
-        'if longCond',
-        '    strategy.entry("L", strategy.long,  alert_message = msgOpen("long"))',
-        'if shortCond',
-        '    strategy.entry("S", strategy.short, alert_message = msgOpen("short"))',
-        'if exitCond',
-        '    strategy.close_all(alert_message = msgClose)',
-      ].join("\n")
     }
 
     function renderSource(idKey, dataKey) {
@@ -767,11 +524,7 @@
       killBtn.classList.toggle("engaged", !!s.killSwitch)
       killBtn.textContent = "kill switch: " + (s.killSwitch ? "engaged" : "off")
 
-      // input source cards (idKey matches DOM ids, dataKey matches /api/state.sources)
       renderSource("Tv", "webhook")
-      renderSource("Mcp", "mcp")
-      renderSource("Ui", "ui")
-      renderSource("Cli", "cli")
 
       // balance
       const balEl = document.getElementById("balance")
@@ -789,7 +542,7 @@
         // sort by pnl % descending so winners on top
         const sorted = s.positions.slice().sort((a, b) => (b.pnlPct ?? -Infinity) - (a.pnlPct ?? -Infinity))
         html += "<table><thead><tr>"
-        html += "<th>pair</th><th>side</th><th>lev</th><th>coll</th><th>entry</th><th>mark</th><th>pnl</th><th>liq</th><th>opened</th><th></th>"
+        html += "<th>pair</th><th>side</th><th>lev</th><th>coll</th><th>entry</th><th>mark</th><th>pnl</th><th>liq</th><th>opened</th>"
         html += "</tr></thead><tbody>"
         for (const p of sorted) {
           const pair = p.base && p.quote ? (p.base + "/" + p.quote) : ("m" + p.marketId)
@@ -813,7 +566,6 @@
           html += '<td class="' + pnlCls + '">' + pnlStr + pnlPctStr + "</td>"
           html += "<td>" + fmt.num(p.liquidationPrice, 2) + "</td>"
           html += '<td title="' + escapeHtml(openedTitle) + '" style="color:var(--dim)">' + openedRel + "</td>"
-          html += '<td><button class="btn sm red" data-close="' + p.id + '">close</button></td>'
           html += "</tr>"
         }
         html += "</tbody></table>"
@@ -827,7 +579,7 @@
         ew.innerHTML = '<div class="empty">no signals yet</div>'
       } else {
         let h = "<table><thead><tr>"
-        h += "<th>time</th><th>src</th><th>act</th><th>market</th><th>status</th><th>dur</th>"
+        h += "<th>time</th><th>act</th><th>market</th><th>status</th><th>dur</th>"
         h += "</tr></thead><tbody>"
         for (const e of events.slice(0, 25)) {
           const sideLbl = e.action === "open_long" ? "LONG"
@@ -841,7 +593,6 @@
             : e.marketId !== undefined ? ("m" + e.marketId) : "—"
           h += "<tr>"
           h += "<td>" + fmt.time(e.ts) + "</td>"
-          h += "<td>" + e.source + "</td>"
           h += '<td>' + (sidePill ? '<span class="pill ' + sidePill + '">' + sideLbl + "</span>" : sideLbl) + "</td>"
           h += "<td>" + market + "</td>"
           h += '<td><span class="pill ' + e.status + '">' + e.status + "</span></td>"
@@ -878,11 +629,6 @@
       const url = s.webhookUrl || "(unknown)"
       setCode("tvUrl", url)
       renderWebhookSnippets()
-      setCode("mcpJson", JSON.stringify({
-        mcpServers: {
-          sai: { command: "npx", args: ["tsx", "<absolute path to>/sai-trade-bridge/src/mcp.ts"] },
-        },
-      }, null, 2))
 
       // wire copy buttons on static .code-block elements that have no id yet
       for (const el of document.querySelectorAll(".code-block[data-copy]")) {
@@ -925,12 +671,6 @@
       }[c]))
     }
 
-    function showResult(elId, ok, msg) {
-      const el = document.getElementById(elId)
-      el.innerHTML = '<div class="result-toast ' + (ok ? "ok" : "err") + '">' + escapeHtml(msg) + "</div>"
-      setTimeout(() => { el.innerHTML = "" }, 6000)
-    }
-
     // --- handlers ---
 
     document.getElementById("killBtn").addEventListener("click", async () => {
@@ -966,82 +706,6 @@
     for (const id of ["ambLev", "ambAmt", "ambSlp"]) {
       document.getElementById(id).addEventListener("input", renderWebhookSnippets)
     }
-
-    document.getElementById("ambSizeSeg").addEventListener("click", (e) => {
-      const target = e.target
-      if (!(target instanceof HTMLButtonElement)) return
-      const m = target.dataset.mode
-      if (!m) return
-      ambMode = m
-      for (const b of document.querySelectorAll("#ambSizeSeg button")) {
-        b.classList.toggle("active", b.dataset.mode === ambMode)
-      }
-      const hint = document.getElementById("ambHint")
-      hint.innerHTML = ambMode === "fixed"
-        ? 'Hardcoded leverage / collateral / slippage. Same size on every signal. Switch to <b>dynamic</b> if you want Pine to compute size per trade (e.g. % of account, ATR-scaled, etc.).'
-        : 'In the TradingView alert dialog, the entire <b>Message</b> field is just <code>{{strategy.order.alert_message}}</code>. The JSON is assembled in Pine — see the snippet below for the pattern.'
-      renderWebhookSnippets()
-    })
-
-    document.getElementById("sideSeg").addEventListener("click", (e) => {
-      const target = e.target
-      if (!(target instanceof HTMLButtonElement)) return
-      const s = target.dataset.side
-      if (!s) return
-      side = s
-      for (const b of document.querySelectorAll("#sideSeg button")) {
-        b.classList.toggle("active", b.dataset.side === side)
-        b.classList.toggle("long", b.dataset.side === "long")
-        b.classList.toggle("short", b.dataset.side === "short")
-      }
-    })
-
-    document.getElementById("fireBtn").addEventListener("click", async () => {
-      const btn = document.getElementById("fireBtn")
-      const marketId = Number(document.getElementById("marketSel").value)
-      if (Number.isNaN(marketId)) {
-        showResult("tradeResult", false, "select a market first")
-        return
-      }
-      const leverage = Number(document.getElementById("levInp").value)
-      const amountUsdc = document.getElementById("amtInp").value
-      const slippagePct = document.getElementById("slpInp").value
-      btn.disabled = true
-      btn.textContent = "firing…"
-      try {
-        const res = await auth("/api/open", {
-          long: side === "long", marketId, leverage, amountUsdc, slippagePct,
-        })
-        if (res.ok) {
-          showResult("tradeResult", true, res.json.message || "ok")
-        } else {
-          showResult("tradeResult", false, res.json.message || res.json.error || ("HTTP " + res.status))
-        }
-        fetchState()
-      } catch (e) {
-        showResult("tradeResult", false, e.message)
-      } finally {
-        btn.disabled = false
-        btn.textContent = "fire trade →"
-      }
-    })
-
-    document.getElementById("positionsWrap").addEventListener("click", async (e) => {
-      const t = e.target
-      if (!(t instanceof HTMLButtonElement)) return
-      const idx = t.dataset.close
-      if (!idx) return
-      if (!confirm("Close trade index " + idx + "?")) return
-      t.disabled = true
-      t.textContent = "closing…"
-      const res = await auth("/api/close", { userTradeIndex: Number(idx) })
-      if (!res.ok) {
-        alert("Close failed: " + (res.json.message || res.json.error || res.status))
-        t.disabled = false
-        t.textContent = "close"
-      }
-      fetchState()
-    })
 
     fetchState()
     fetchMarkets()

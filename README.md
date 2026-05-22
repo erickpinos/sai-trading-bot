@@ -1,18 +1,17 @@
-# sai-trade-bridge
+# sai-trading-bot
 
-TradingView + MCP → sai.fun (Nibiru perps).
+TradingView → sai.fun (Nibiru perps).
 
-Two entry points to the same Sai trade core:
-
-1. **Webhook server** (`src/webhook.ts`) — receives TradingView alert POSTs and fires perp trades.
-2. **MCP server** (`src/mcp.ts`) — exposes the same trade actions as tools so Claude / Cursor / any MCP client can trade.
+Single entry point: a webhook server (`src/webhook.ts`) that receives TradingView alert POSTs and fires perp trades.
 
 Built off the proven `openTrade` / `closeTrade` calls in `sai-website/webapp/state/web3Calls/trade.tsx`. The wallet must hold USDC on Nibiru. Gas is sponsored by the chain (`gasPrice=0`) for the PerpVaultEvmInterface contract.
+
+> The `dev` branch carries additional surfaces (MCP server, Web UI manual trade form, CLI, TradingView strategy alert support, dynamic Pine sizing, step-by-step setup walkthrough, alternate payload variants). `main` is intentionally the minimal webhook-only build.
 
 ## Setup
 
 ```bash
-cd ~/Code/sai-trade-bridge
+cd ~/Code/sai-trading-bot
 npm install
 cp env.example.txt .env
 # edit .env: set MNEMONIC and WEBHOOK_SECRET
@@ -24,18 +23,14 @@ cp env.example.txt .env
 # typecheck
 npm run typecheck
 
-# dry-run open long, 2x leverage, $5 collateral, market 1
-DRY_RUN=true npx tsx src/cli-open.ts 1 long 2 5
-
 # webhook server (dry-run)
-DRY_RUN=true npm run webhook:dry
+npm run webhook:dry
 
 # webhook server (live)
 npm run webhook
-
-# MCP server (stdio — wire into Claude Desktop / Code config)
-npm run mcp
 ```
+
+The webhook server also serves a read-only monitoring dashboard at `/dashboard` (USDC balance, open positions, recent activity, dry-run / kill-switch controls, and a per-market alert-payload builder).
 
 ## TradingView alert format
 
@@ -54,46 +49,16 @@ In your TradingView alert, set webhook URL to `http://<host>:3030/webhook` and m
 
 Actions: `open_long`, `open_short`, `close`.
 
-For `close`, provide either:
+For `close`, provide the trade index:
 
 ```json
 { "secret": "...", "action": "close", "userTradeIndex": 42 }
 ```
 
-or — let the bridge resolve the trade index from the keeper:
-
-```json
-{ "secret": "...", "action": "close", "marketId": 1, "long": true }
-```
-
-## MCP wiring (Claude Desktop / Claude Code)
-
-Add to your MCP config:
-
-```json
-{
-  "mcpServers": {
-    "sai": {
-      "command": "npx",
-      "args": ["tsx", "/Users/Erick/Code/sai-trade-bridge/src/mcp.ts"]
-    }
-  }
-}
-```
-
-Exposed tools:
-
-- `open_long(marketId, leverage, amountUsdc, slippagePct?)`
-- `open_short(marketId, leverage, amountUsdc, slippagePct?)`
-- `close_trade(userTradeIndex)`  *or*  `close_trade(marketId, long)`
-- `list_markets()`
-- `get_wallet()`
-
 ## Security notes
 
 - Run on a wallet funded with only the USDC you're comfortable risking.
 - Use a TradingView Pro+ webhook URL only — TradingView's IPs are public, so always require `WEBHOOK_SECRET` and ideally put this behind a reverse proxy with IP allowlist.
-- LLM-triggered trades through MCP have *zero* sanity bound by default. Add max-size / max-leverage guards in `trade.ts` if you wire this to an autonomous agent.
 
 ## Chain config
 

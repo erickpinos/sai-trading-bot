@@ -1,5 +1,5 @@
 /**
- * sai-trade-bridge HTTP server.
+ * sai-trading-bot HTTP server.
  *
  * Public:
  *   GET  /health             - liveness probe
@@ -9,8 +9,6 @@
  *   POST /webhook            - TradingView alert receiver (auth: body.secret)
  *
  * UI-protected (auth: x-secret header):
- *   POST /api/open           - { long, marketId, leverage, amountUsdc, slippagePct? }
- *   POST /api/close          - { userTradeIndex } | { marketId, long }
  *   POST /api/kill           - { engaged: boolean }
  *   POST /api/dry-run        - { enabled: boolean }
  *   POST /api/clear-events
@@ -22,7 +20,7 @@ import { z } from "zod"
 import { loadDotenv } from "./env"
 import { loadConfig } from "./config"
 import { buildSigner } from "./wallet"
-import { openTrade, closeTrade, type CloseTradeArgs } from "./trade"
+import { openTrade, closeTrade } from "./trade"
 import {
   recordEvent,
   recentEvents,
@@ -57,69 +55,7 @@ const CloseByIndexWebhookSchema = z.object({
   userTradeIndex: z.number().int().nonnegative(),
 })
 
-// `long` accepts a bool or a TradingView strategy placeholder string
-// (`{{strategy.market_position_prev}}` resolves to "long" / "short" on a
-// close fill). "true"/"false" are also accepted for raw JSON callers.
-const CloseByMarketWebhookSchema = z.object({
-  secret: z.string().min(1),
-  action: z.literal("close"),
-  marketId: z.number().int().nonnegative(),
-  long: z.union([
-    z.boolean(),
-    z
-      .string()
-      .transform((s) => s.trim().toLowerCase())
-      .pipe(z.enum(["long", "short", "true", "false"]))
-      .transform((s) => s === "long" || s === "true"),
-  ]),
-})
-
-// TradingView strategy alert — accepts raw {{strategy.order.action}} and
-// {{strategy.market_position}} placeholders and translates to open/close.
-// Trim+lowercase before validating so whitespace and case from TV templates
-// don't fail us.
-const StrategyWebhookSchema = z.object({
-  secret: z.string().min(1),
-  action: z.literal("strategy"),
-  marketId: z.number().int().nonnegative(),
-  leverage: z.union([z.number(), z.string()]),
-  amountUsdc: z.union([z.number(), z.string()]).transform((v) => String(v)),
-  slippagePct: z
-    .union([z.number(), z.string()])
-    .optional()
-    .transform((v) => (v === undefined ? undefined : String(v))),
-  orderAction: z
-    .string()
-    .transform((s) => s.trim().toLowerCase())
-    .pipe(z.enum(["buy", "sell"])),
-  marketPosition: z
-    .string()
-    .transform((s) => s.trim().toLowerCase())
-    .pipe(z.enum(["long", "short", "flat"])),
-})
-
-const WebhookSchema = z.union([
-  OpenWebhookSchema,
-  CloseByIndexWebhookSchema,
-  CloseByMarketWebhookSchema,
-  StrategyWebhookSchema,
-])
-
-const UiOpenSchema = z.object({
-  long: z.boolean(),
-  marketId: z.number().int().nonnegative(),
-  leverage: z.union([z.number(), z.string()]),
-  amountUsdc: z.union([z.number(), z.string()]).transform((v) => String(v)),
-  slippagePct: z
-    .union([z.number(), z.string()])
-    .optional()
-    .transform((v) => (v === undefined ? undefined : String(v))),
-})
-
-const UiCloseSchema = z.union([
-  z.object({ userTradeIndex: z.number().int().nonnegative() }),
-  z.object({ marketId: z.number().int().nonnegative(), long: z.boolean() }),
-])
+const WebhookSchema = z.union([OpenWebhookSchema, CloseByIndexWebhookSchema])
 
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false
@@ -262,19 +198,14 @@ async function main() {
       }
 
       if (body.action === "close") {
-        const args: CloseTradeArgs =
-          "userTradeIndex" in body
-            ? { userTradeIndex: body.userTradeIndex }
-            : { marketId: body.marketId, long: body.long }
         const result = await closeTrade(
           signer,
-          args,
-          webhookTradeOpts("close", "marketId" in body ? body.marketId : undefined),
+          { userTradeIndex: body.userTradeIndex },
+          webhookTradeOpts("close", undefined),
         )
         recordEvent({
           source: "webhook",
           action: "close",
-          marketId: "marketId" in body ? body.marketId : undefined,
           status: result.status,
           txHash: result.txHash,
           explorer: result.explorer,
@@ -282,82 +213,6 @@ async function main() {
           durationMs: Date.now() - startedAt,
         })
         return res.json(result)
-      }
-
-      if (body.action === "strategy") {
-        // Translate (orderAction, marketPosition) → open_long | open_short | close.
-        // See README for the truth table; reversals (sell+short, buy+long
-        // while opposite was open) are treated as a fresh entry — operator
-        // is expected to close manually or wire a separate close alert.
-        const oa = body.orderAction
-        const mp = body.marketPosition
-        let translated: "open_long" | "open_short" | "close"
-        let closeLong: boolean | null = null
-        if (oa === "buy" && mp === "long") translated = "open_long"
-        else if (oa === "sell" && mp === "short") translated = "open_short"
-        else if (oa === "sell" && mp === "flat") { translated = "close"; closeLong = true }
-        else if (oa === "buy" && mp === "flat") { translated = "close"; closeLong = false }
-        else {
-          recordEvent({
-            source: "webhook",
-            action: "rejected",
-            marketId: body.marketId,
-            status: "error",
-            message: `strategy fill ambiguous: orderAction=${oa} marketPosition=${mp}`,
-            durationMs: Date.now() - startedAt,
-          })
-          return res.status(400).json({
-            error: "ambiguous_strategy_fill",
-            orderAction: oa,
-            marketPosition: mp,
-          })
-        }
-
-        if (translated === "close") {
-          const result = await closeTrade(
-            signer,
-            { marketId: body.marketId, long: closeLong as boolean },
-            webhookTradeOpts("close", body.marketId),
-          )
-          recordEvent({
-            source: "webhook",
-            action: "close",
-            marketId: body.marketId,
-            status: result.status,
-            txHash: result.txHash,
-            explorer: result.explorer,
-            message: `[strategy ${oa}/${mp}] ${result.message}`,
-            durationMs: Date.now() - startedAt,
-          })
-          return res.json({ ...result, translatedFrom: { orderAction: oa, marketPosition: mp } })
-        }
-
-        const result = await openTrade(
-          signer,
-          {
-            marketId: body.marketId,
-            long: translated === "open_long",
-            leverage: body.leverage,
-            amountUsdc: body.amountUsdc,
-            slippagePct: body.slippagePct ?? app.defaultSlippagePct,
-          },
-          webhookTradeOpts(translated, body.marketId),
-        )
-        recordEvent({
-          source: "webhook",
-          action: translated,
-          marketId: result.marketId,
-          base: result.base,
-          quote: result.quote,
-          leverage: body.leverage,
-          amountUsdc: body.amountUsdc,
-          status: result.status,
-          txHash: result.txHash,
-          explorer: result.explorer,
-          message: `[strategy ${oa}/${mp}] ${result.message}`,
-          durationMs: Date.now() - startedAt,
-        })
-        return res.json({ ...result, translatedFrom: { orderAction: oa, marketPosition: mp } })
       }
 
       return res.status(400).json({ error: "unknown_action" })
@@ -387,9 +242,6 @@ async function main() {
         { count: number; lastTs: number | null; lastStatus: string | null }
       > = {
         webhook: { count: 0, lastTs: null, lastStatus: null },
-        mcp: { count: 0, lastTs: null, lastStatus: null },
-        ui: { count: 0, lastTs: null, lastStatus: null },
-        cli: { count: 0, lastTs: null, lastStatus: null },
       }
       for (const e of events) {
         const slot = sources[e.source]
@@ -449,116 +301,6 @@ async function main() {
     if (!checkSecret(req)) return res.status(403).json({ error: "forbidden" })
     clearEvents()
     res.json({ cleared: true })
-  })
-
-  server.post("/api/open", async (req, res) => {
-    if (!checkSecret(req)) return res.status(403).json({ error: "forbidden" })
-    const startedAt = Date.now()
-    try {
-      const parsed = UiOpenSchema.safeParse(req.body)
-      if (!parsed.success) {
-        return res.status(400).json({ error: "invalid_payload", details: parsed.error.flatten() })
-      }
-      const body = parsed.data
-
-      if (isKilled()) {
-        recordEvent({
-          source: "ui",
-          action: "rejected",
-          status: "blocked",
-          message: `kill switch engaged — rejected open`,
-          durationMs: Date.now() - startedAt,
-        })
-        return res.status(503).json({ error: "kill_switch_engaged" })
-      }
-
-      const result = await openTrade(
-        signer,
-        {
-          marketId: body.marketId,
-          long: body.long,
-          leverage: body.leverage,
-          amountUsdc: body.amountUsdc,
-          slippagePct: body.slippagePct ?? app.defaultSlippagePct,
-        },
-        tradeOpts(),
-      )
-      recordEvent({
-        source: "ui",
-        action: body.long ? "open_long" : "open_short",
-        marketId: result.marketId,
-        base: result.base,
-        quote: result.quote,
-        leverage: body.leverage,
-        amountUsdc: body.amountUsdc,
-        status: result.status,
-        txHash: result.txHash,
-        explorer: result.explorer,
-        message: result.message,
-        durationMs: Date.now() - startedAt,
-      })
-      res.json(result)
-    } catch (err) {
-      const msg = (err as Error).message
-      recordEvent({
-        source: "ui",
-        action: "rejected",
-        status: "error",
-        message: msg,
-        durationMs: Date.now() - startedAt,
-      })
-      res.status(500).json({ error: "trade_failed", message: msg })
-    }
-  })
-
-  server.post("/api/close", async (req, res) => {
-    if (!checkSecret(req)) return res.status(403).json({ error: "forbidden" })
-    const startedAt = Date.now()
-    try {
-      const parsed = UiCloseSchema.safeParse(req.body)
-      if (!parsed.success) {
-        return res.status(400).json({ error: "invalid_payload", details: parsed.error.flatten() })
-      }
-      const body = parsed.data
-
-      if (isKilled()) {
-        recordEvent({
-          source: "ui",
-          action: "rejected",
-          status: "blocked",
-          message: `kill switch engaged — rejected close`,
-          durationMs: Date.now() - startedAt,
-        })
-        return res.status(503).json({ error: "kill_switch_engaged" })
-      }
-
-      const args: CloseTradeArgs =
-        "userTradeIndex" in body
-          ? { userTradeIndex: body.userTradeIndex }
-          : { marketId: body.marketId, long: body.long }
-      const result = await closeTrade(signer, args, tradeOpts())
-      recordEvent({
-        source: "ui",
-        action: "close",
-        marketId: "marketId" in body ? body.marketId : undefined,
-        status: result.status,
-        txHash: result.txHash,
-        explorer: result.explorer,
-        message: result.message,
-        durationMs: Date.now() - startedAt,
-      })
-      res.json(result)
-    } catch (err) {
-      const msg = (err as Error).message
-      recordEvent({
-        source: "ui",
-        action: "rejected",
-        status: "error",
-        message: msg,
-        durationMs: Date.now() - startedAt,
-      })
-      res.status(500).json({ error: "trade_failed", message: msg })
-    }
   })
 
   server.get("/dashboard", (_req, res) => {

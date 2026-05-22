@@ -2,18 +2,14 @@
   "name": "sai-trading-bot",
   "version": "0.1.0",
   "private": true,
-  "description": "TradingView + MCP -> sai.fun (Nibiru perps) trading bot. Webhook receiver and MCP server that signs and submits perp trades against the Sai EVM interface.",
+  "description": "TradingView -> sai.fun (Nibiru perps) trading bot. Webhook receiver that signs and submits perp trades against the Sai EVM interface.",
   "type": "commonjs",
   "scripts": {
     "webhook": "tsx src/webhook.ts",
     "webhook:dry": "DRY_RUN=true tsx src/webhook.ts",
-    "mcp": "tsx src/mcp.ts",
-    "trade:open": "tsx src/cli-open.ts",
-    "trade:close": "tsx src/cli-close.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
     "ethers": "^6.13.0",
     "express": "^4.21.0",
     "zod": "^3.23.8"
