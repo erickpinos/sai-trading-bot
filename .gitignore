@@ -7,3 +7,4 @@ events.jsonl
 .DS_Store
 .gstack/
 .claude/settings.local.json
+.strategies

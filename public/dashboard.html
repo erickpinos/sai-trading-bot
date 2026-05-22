@@ -85,6 +85,8 @@
     }
     .btn:hover { background: var(--panel-2); }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn:focus { outline: none; }
+    .btn:focus-visible { outline: 1px solid var(--border); outline-offset: 2px; }
     .btn.engaged { background: var(--red-bg); border-color: var(--red-border); color: var(--red); }
     .btn.dry-on { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber); }
     .btn.red { background: var(--red-bg); border-color: var(--red-border); color: var(--red); }
@@ -97,44 +99,15 @@
       margin: 0 auto;
     }
     .flow {
-      display: grid;
-      grid-template-columns: 1.1fr auto 1fr auto 1.1fr;
+      display: flex;
       gap: 16px;
       align-items: stretch;
     }
-    .flow-arrow {
-      display: flex; align-items: center; justify-content: center;
-      color: var(--dim); font-size: 24px; font-family: var(--mono); user-select: none;
-      padding: 0 4px;
-    }
     .col {
       display: flex; flex-direction: column; gap: 12px; min-width: 0;
+      flex: 1.1 1 0;
     }
-    .col-header {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 6px; padding: 0 4px; cursor: pointer; user-select: none;
-      margin-bottom: -2px;
-    }
-    .col-header:hover .col-toggle { color: var(--text); border-color: var(--border); }
-    .col-toggle {
-      background: none; border: 1px solid transparent; color: var(--dim);
-      font-family: var(--mono); cursor: pointer; font-size: 13px;
-      padding: 0 7px; line-height: 1.4; border-radius: 4px;
-    }
-    .col-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-    .col.collapsed { gap: 0; }
-    .col.collapsed .col-body { display: none; }
-    .col.collapsed .col-header {
-      flex-direction: column-reverse; padding: 10px 0; gap: 12px;
-      align-items: center; min-height: 140px;
-      border: 1px solid var(--border); border-radius: 8px;
-      background: var(--panel);
-    }
-    .col.collapsed .col-header:hover { background: var(--panel-2); }
-    .col.collapsed .col-label {
-      writing-mode: vertical-rl; transform: rotate(180deg);
-      padding: 0; margin: 0;
-    }
+    .col[data-col="1"] { flex: 1 1 0; }
     .col-label {
       font-size: 10px; font-weight: 700; letter-spacing: 0.18em;
       text-transform: uppercase; color: var(--dim);
@@ -142,9 +115,54 @@
     }
     th.sortable { cursor: pointer; user-select: none; }
     th.sortable:hover { color: var(--text); }
-    th.sortable .arrow { color: transparent; margin-left: 2px; font-size: 9px; }
+    th.sortable .arrow { color: var(--dim); margin-left: 2px; font-size: 9px; }
+
+    /* Open positions table: allow horizontal scroll when contents exceed panel width */
+    #positionsWrap { overflow-x: auto; }
+    #positionsWrap table { min-width: max-content; }
     th.sortable.active { color: var(--text); }
     th.sortable.active .arrow { color: var(--accent); }
+
+    /* Theme toggle — pill with sliding thumb under the active icon. */
+    .btn.theme-btn {
+      display: inline-flex; align-items: center; justify-content: space-between;
+      width: 56px; height: 28px; padding: 0 8px;
+      border-radius: 14px; position: relative; overflow: hidden;
+    }
+    .theme-btn::before {
+      content: ""; position: absolute; top: 50%; left: 3px;
+      width: 22px; height: 22px; margin-top: -11px;
+      background: var(--panel-2); border-radius: 50%;
+      transition: transform 320ms cubic-bezier(0.4, 0, 0.2, 1),
+                  background-color 280ms ease;
+    }
+    [data-theme="light"] .theme-btn::before { transform: translateX(0); }
+    [data-theme="dark"] .theme-btn::before  { transform: translateX(26px); }
+    .theme-btn .icon {
+      width: 13px; height: 13px;
+      position: relative; z-index: 1;
+      color: var(--dim);
+      transition: color 280ms ease;
+    }
+    [data-theme="light"] .theme-btn .icon-sun  { color: var(--accent); }
+    [data-theme="dark"]  .theme-btn .icon-moon { color: var(--accent); }
+    .theme-btn:hover::before { background: var(--border); }
+
+    /* Smooth color transitions across the dashboard for browsers without
+       view-transitions; harmless when view-transitions handles the swap. */
+    body, .panel, .pipeline-state, .code-block, details, .seg,
+    .btn, .pill, .code-block .copy-btn,
+    .form-row input, .form-row select, .seg button {
+      transition: background-color 280ms ease, color 280ms ease, border-color 280ms ease;
+    }
+
+    /* View-transition: simple crossfade. */
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation-duration: 380ms;
+      animation-timing-function: ease;
+      mix-blend-mode: normal;
+    }
     .panel {
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 8px; padding: 12px;
@@ -249,25 +267,22 @@
     .code-block .copy-btn:hover { color: var(--text); }
     .code-block .copy-btn.ok { color: var(--green); border-color: var(--green-border); }
 
+    .tunnel-bar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin: 2px 0 6px; font-family: var(--mono); font-size: 11px;
+    }
+    .tunnel-msg { color: var(--muted); flex: 1; min-width: 0; }
+    .tunnel-msg.error { color: var(--red); }
+    .pill.starting { background: var(--amber-bg); color: var(--amber); }
+    .pill.running { background: var(--green-bg); color: var(--green); }
+    .pill.stopped { background: var(--neutral-pill); color: var(--dim); }
+
     .footer {
       padding: 14px 24px; text-align: center; color: var(--muted);
       font-size: 11px; font-family: var(--mono);
     }
 
-    /* responsive: collapse arrows on narrow screens */
-    @media (max-width: 1100px) {
-      .flow { grid-template-columns: 1fr !important; }
-      .flow-arrow { display: none; }
-      .col.collapsed .col-body { display: flex; }
-      .col.collapsed .col-header {
-        flex-direction: row; padding: 0 4px; gap: 6px; min-height: 0;
-        border: none; background: transparent;
-      }
-      .col.collapsed .col-header:hover { background: transparent; }
-      .col.collapsed .col-label {
-        writing-mode: horizontal-tb; transform: none;
-      }
-    }
+    /* keep columns horizontal at all widths — they never stack vertically */
   </style>
 </head>
 <body>
@@ -278,8 +293,15 @@
     </h1>
     <span class="meta" id="meta">loading…</span>
     <div class="header-actions">
-      <button class="btn" id="themeBtn" type="button" title="toggle light/dark">light</button>
-      <button class="btn" id="logoutBtn" type="button" title="forget cached secret">lock</button>
+      <button class="btn theme-btn" id="themeBtn" type="button" title="toggle light/dark" aria-label="toggle theme">
+        <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+        <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
     </div>
   </header>
 
@@ -287,22 +309,13 @@
     <div class="flow">
 
       <!-- ========== INPUTS ========== -->
-      <div class="col" data-col="0">
-        <div class="col-header" data-col-toggle="0">
-          <div class="col-label">Inputs</div>
-          <button class="col-toggle" type="button" title="collapse">−</button>
-        </div>
-        <div class="col-body">
+      <div class="col">
+        <div class="col-label">Inputs</div>
 
         <!-- TradingView alert_message builder (market picker lives inside) -->
         <section class="panel" id="alertBuilder">
           <div class="panel-head">
             <h2>TradingView alert message</h2>
-            <span class="pill idle" id="srcTvPill">idle</span>
-          </div>
-          <div class="src-stat">
-            <span>events: <span class="n" id="srcTvCount">0</span></span>
-            <span>last: <span class="lt" id="srcTvLast">—</span></span>
           </div>
 
           <p style="margin:10px 0 6px; color:var(--muted); font-size:10.5px">Pick a market, set leverage / collateral / slippage, then paste the payload that matches your alert (entry-long, entry-short, or close) into TradingView's <i>Message</i> field.</p>
@@ -334,8 +347,17 @@
             </div>
           </div>
 
+          <div class="tunnel-bar">
+            <span class="pill idle" id="tunnelPill">—</span>
+            <span class="tunnel-msg" id="tunnelMsg">checking tunnel…</span>
+            <button class="btn sm" id="tunnelBtn" type="button" style="display:none">start tunnel</button>
+          </div>
           <p class="field-label">→ paste into TradingView's <b>Webhook URL</b> field</p>
           <div class="code-block" id="tvUrl" data-copy>—</div>
+
+          <p class="field-label">→ paste into TradingView's <b>Message body</b> field</p>
+          <div class="code-block" id="tvStrategy" data-copy>—</div>
+          <p style="color:var(--dim); font-size:10px; margin:4px 0 0; font-style:italic">Set the TradingView alert <i>Condition</i> to your Pine strategy with <i>Order fills only</i>. The bridge reads <code>{{strategy.order.action}}</code> + <code>{{strategy.market_position}}</code> and routes to open / close.</p>
 
           <p class="field-label">→ open LONG (Message body)</p>
           <div class="code-block" id="tvOpenLong" data-copy>—</div>
@@ -346,18 +368,11 @@
           <p class="field-label">→ close trade by index (Message body)</p>
           <div class="code-block" id="tvCloseByIndex" data-copy>—</div>
         </section>
-        </div>
       </div>
 
-      <div class="flow-arrow">→</div>
-
       <!-- ========== PIPELINE ========== -->
-      <div class="col" data-col="1">
-        <div class="col-header" data-col-toggle="1">
-          <div class="col-label">Pipeline</div>
-          <button class="col-toggle" type="button" title="collapse">−</button>
-        </div>
-        <div class="col-body">
+      <div class="col">
+        <div class="col-label">Pipeline</div>
 
         <div class="pipeline-state">
           <div class="mode" id="pipeMode">…</div>
@@ -380,18 +395,11 @@
           </div>
           <div id="eventsWrap"><div class="empty">loading…</div></div>
         </section>
-        </div>
       </div>
 
-      <div class="flow-arrow">→</div>
-
       <!-- ========== OUTPUTS ========== -->
-      <div class="col" data-col="2">
-        <div class="col-header" data-col-toggle="2">
-          <div class="col-label">Outputs</div>
-          <button class="col-toggle" type="button" title="collapse">−</button>
-        </div>
-        <div class="col-body">
+      <div class="col">
+        <div class="col-label">Outputs</div>
 
         <section class="panel">
           <div class="panel-head"><h2>USDC balance</h2></div>
@@ -410,7 +418,6 @@
           <div class="panel-head"><h2>Tx history</h2></div>
           <div id="txWrap"><div class="empty">no broadcast txs yet</div></div>
         </section>
-        </div>
       </div>
 
     </div>
@@ -441,41 +448,13 @@
     let state = null
     const SECRET_KEY = "saitb_secret_v1"
     const THEME_KEY = "saitb_theme_v1"
-    const COLLAPSE_KEY = "saitb_collapse_v1"
     const SORT_KEY = "saitb_pos_sort_v1"
 
     // --- theme ---
     function applyTheme(theme) {
       document.documentElement.dataset.theme = theme
-      const btn = document.getElementById("themeBtn")
-      if (btn) btn.textContent = theme === "light" ? "dark" : "light"
     }
     applyTheme(localStorage.getItem(THEME_KEY) || "dark")
-
-    // --- column collapse ---
-    function loadCollapsed() {
-      try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "[false,false,false]") }
-      catch { return [false, false, false] }
-    }
-    function saveCollapsed(arr) { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(arr)) }
-    function updateGrid() {
-      const flow = document.querySelector(".flow")
-      if (!flow) return
-      if (window.innerWidth <= 1100) { flow.style.gridTemplateColumns = ""; return }
-      const defaults = ["1.1fr", "1fr", "1.1fr"]
-      const arr = loadCollapsed()
-      const sizes = arr.map((c, i) => c ? "44px" : defaults[i])
-      flow.style.gridTemplateColumns = sizes[0] + " auto " + sizes[1] + " auto " + sizes[2]
-    }
-    function applyCollapsed() {
-      const arr = loadCollapsed()
-      document.querySelectorAll(".col").forEach((col, i) => {
-        col.classList.toggle("collapsed", !!arr[i])
-        const tog = col.querySelector(".col-toggle")
-        if (tog) tog.textContent = arr[i] ? "+" : "−"
-      })
-      updateGrid()
-    }
 
     // --- positions sort ---
     let posSort
@@ -614,6 +593,12 @@
 
     function renderWebhookSnippets() {
       const { marketId, lev, amt, slp } = ambInputs()
+      setCode("tvStrategy", JSON.stringify({
+        secret: "<YOUR_WEBHOOK_SECRET>", action: "strategy",
+        marketId, leverage: lev, amountUsdc: amt, slippagePct: slp,
+        orderAction: "{{strategy.order.action}}",
+        marketPosition: "{{strategy.market_position}}",
+      }, null, 2))
       setCode("tvOpenLong", JSON.stringify({
         secret: "<YOUR_WEBHOOK_SECRET>", action: "open_long",
         marketId, leverage: lev, amountUsdc: amt, slippagePct: slp,
@@ -626,15 +611,6 @@
         secret: "<YOUR_WEBHOOK_SECRET>", action: "close",
         userTradeIndex: 42,
       }, null, 2))
-    }
-
-    function renderSource(idKey, dataKey) {
-      const counts = (state && state.sources && state.sources[dataKey]) || { count: 0, lastTs: null, lastStatus: null }
-      document.getElementById("src" + idKey + "Count").textContent = String(counts.count)
-      document.getElementById("src" + idKey + "Last").textContent = fmt.rel(counts.lastTs)
-      const pill = document.getElementById("src" + idKey + "Pill")
-      pill.textContent = counts.count === 0 ? "idle" : "active"
-      pill.className = "pill " + (counts.count === 0 ? "idle" : "active")
     }
 
     function render(s) {
@@ -666,7 +642,6 @@
       killBtn.classList.toggle("engaged", !!s.killSwitch)
       killBtn.textContent = "kill switch: " + (s.killSwitch ? "engaged" : "off")
 
-      renderSource("Tv", "webhook")
 
       // balance
       const balEl = document.getElementById("balance")
@@ -775,9 +750,8 @@
         tw.innerHTML = h
       }
 
-      // helpers — fill code blocks
-      const url = s.webhookUrl || "(unknown)"
-      setCode("tvUrl", url)
+      // tunnel state + webhook URL display
+      renderTunnel(s)
       renderWebhookSnippets()
 
       // wire copy buttons on static .code-block elements that have no id yet
@@ -788,6 +762,40 @@
 
       document.getElementById("footer").textContent =
         "updated " + fmt.time(Date.now()) + " · polling every 5s"
+    }
+
+    function renderTunnel(s) {
+      const pill = document.getElementById("tunnelPill")
+      const msg = document.getElementById("tunnelMsg")
+      const btn = document.getElementById("tunnelBtn")
+      const t = s.tunnel || { status: "stopped", url: null, error: null }
+
+      pill.className = "pill " + t.status
+      pill.textContent = t.status
+
+      btn.disabled = t.status === "starting"
+      btn.style.display = ""
+      msg.classList.remove("error")
+
+      if (t.status === "running" && t.url) {
+        msg.textContent = "public URL is live — TradingView can reach this bot"
+        btn.textContent = "stop tunnel"
+        btn.classList.remove("red")
+        setCode("tvUrl", s.webhookUrl)
+      } else if (t.status === "starting") {
+        msg.textContent = "starting cloudflared… (≤20s)"
+        btn.textContent = "starting…"
+        setCode("tvUrl", "(starting tunnel…)")
+      } else if (t.status === "error") {
+        msg.classList.add("error")
+        msg.textContent = "tunnel error: " + (t.error || "unknown")
+        btn.textContent = "retry tunnel"
+        setCode("tvUrl", "(no public URL — start tunnel)")
+      } else {
+        msg.textContent = "no public URL — start a Cloudflare tunnel to expose this bot to TradingView"
+        btn.textContent = "start tunnel"
+        setCode("tvUrl", "(no public URL — start tunnel)")
+      }
     }
 
     function setCode(id, text) {
@@ -835,33 +843,30 @@
       if (res.ok) fetchState()
     })
 
-    document.getElementById("logoutBtn").addEventListener("click", () => {
-      forgetSecret()
-      alert("Secret cleared. You'll be prompted again on next action.")
-    })
-
     document.getElementById("themeBtn").addEventListener("click", () => {
       const cur = document.documentElement.dataset.theme || "dark"
       const next = cur === "dark" ? "light" : "dark"
-      localStorage.setItem(THEME_KEY, next)
-      applyTheme(next)
+      const swap = () => {
+        localStorage.setItem(THEME_KEY, next)
+        applyTheme(next)
+      }
+      if (document.startViewTransition) document.startViewTransition(swap)
+      else swap()
     })
-
-    for (const hdr of document.querySelectorAll(".col-header[data-col-toggle]")) {
-      hdr.addEventListener("click", () => {
-        const i = Number(hdr.dataset.colToggle)
-        const arr = loadCollapsed()
-        arr[i] = !arr[i]
-        saveCollapsed(arr)
-        applyCollapsed()
-      })
-    }
-
-    window.addEventListener("resize", updateGrid)
-    applyCollapsed()
 
     document.getElementById("clearBtn").addEventListener("click", async () => {
       const res = await auth("/api/clear-events", {})
+      if (res.ok) fetchState()
+    })
+
+    document.getElementById("tunnelBtn").addEventListener("click", async () => {
+      if (!state) return
+      const t = state.tunnel || { status: "stopped" }
+      const path = t.status === "running" ? "/api/tunnel/stop" : "/api/tunnel/start"
+      const btn = document.getElementById("tunnelBtn")
+      btn.disabled = true
+      const res = await auth(path, {})
+      btn.disabled = false
       if (res.ok) fetchState()
     })
 

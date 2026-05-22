@@ -33,7 +33,8 @@ import {
   initEventLog,
 } from "./events"
 import { getUsdcBalance, getOpenPositions } from "./positions"
-import { listMarkets, type MarketSummary } from "./sai-keeper"
+import { listMarkets, findOpenTrade, type MarketSummary } from "./sai-keeper"
+import { getTunnelState, startTunnel, stopTunnel } from "./tunnel"
 
 loadDotenv()
 
@@ -55,7 +56,36 @@ const CloseByIndexWebhookSchema = z.object({
   userTradeIndex: z.number().int().nonnegative(),
 })
 
-const WebhookSchema = z.union([OpenWebhookSchema, CloseByIndexWebhookSchema])
+// Flexible TradingView strategy alert — one payload routes both entries and
+// exits. The bridge reads {{strategy.order.action}} and
+// {{strategy.market_position}} placeholders and translates to the matching
+// open/close call. Trim+lowercase before validating so whitespace and case
+// from TV templates don't fail us.
+const StrategyWebhookSchema = z.object({
+  secret: z.string().min(1),
+  action: z.literal("strategy"),
+  marketId: z.number().int().nonnegative(),
+  leverage: z.union([z.number(), z.string()]),
+  amountUsdc: z.union([z.number(), z.string()]).transform((v) => String(v)),
+  slippagePct: z
+    .union([z.number(), z.string()])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : String(v))),
+  orderAction: z
+    .string()
+    .transform((s) => s.trim().toLowerCase())
+    .pipe(z.enum(["buy", "sell"])),
+  marketPosition: z
+    .string()
+    .transform((s) => s.trim().toLowerCase())
+    .pipe(z.enum(["long", "short", "flat"])),
+})
+
+const WebhookSchema = z.union([
+  OpenWebhookSchema,
+  CloseByIndexWebhookSchema,
+  StrategyWebhookSchema,
+])
 
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false
@@ -215,6 +245,118 @@ async function main() {
         return res.json(result)
       }
 
+      if (body.action === "strategy") {
+        // Translate (orderAction, marketPosition) → open_long | open_short |
+        // close. See README for the truth table; reversals (buy while short
+        // open, sell while long open) are treated as a fresh entry — operator
+        // is expected to close manually or wire a separate close alert.
+        const oa = body.orderAction
+        const mp = body.marketPosition
+        let translated: "open_long" | "open_short" | "close"
+        let closeLong: boolean | null = null
+        if (oa === "buy" && mp === "long") translated = "open_long"
+        else if (oa === "sell" && mp === "short") translated = "open_short"
+        else if (oa === "sell" && mp === "flat") { translated = "close"; closeLong = true }
+        else if (oa === "buy" && mp === "flat") { translated = "close"; closeLong = false }
+        else {
+          recordEvent({
+            source: "webhook",
+            action: "rejected",
+            marketId: body.marketId,
+            status: "error",
+            message: `strategy fill ambiguous: orderAction=${oa} marketPosition=${mp}`,
+            durationMs: Date.now() - startedAt,
+          })
+          return res.status(400).json({
+            error: "ambiguous_strategy_fill",
+            orderAction: oa,
+            marketPosition: mp,
+          })
+        }
+
+        if (translated === "close") {
+          const result = await closeTrade(
+            signer,
+            { marketId: body.marketId, long: closeLong as boolean },
+            webhookTradeOpts("close", body.marketId),
+          )
+          recordEvent({
+            source: "webhook",
+            action: "close",
+            marketId: body.marketId,
+            status: result.status,
+            txHash: result.txHash,
+            explorer: result.explorer,
+            message: `[strategy ${oa}/${mp}] ${result.message}`,
+            durationMs: Date.now() - startedAt,
+          })
+          return res.json({ ...result, translatedFrom: { orderAction: oa, marketPosition: mp } })
+        }
+
+        // Reversal handling: if the opposite-side position is open in this
+        // market, close it before opening the new side. Lets TV strategies in
+        // Long/Short mode work without losing track of stacked positions, and
+        // is a no-op for Long/Flat strategies (which never send a same-bar
+        // reversal alert).
+        const openingLong = translated === "open_long"
+        const oppositeTrade = await findOpenTrade(
+          app.cfg.saiKeeperEndpoint,
+          signer.wallet.address,
+          body.marketId,
+          !openingLong,
+        ).catch(() => null)
+
+        let reversalClose: Awaited<ReturnType<typeof closeTrade>> | null = null
+        if (oppositeTrade) {
+          reversalClose = await closeTrade(
+            signer,
+            { userTradeIndex: oppositeTrade.userTradeIndex },
+            webhookTradeOpts("reversal-close", body.marketId),
+          )
+          recordEvent({
+            source: "webhook",
+            action: "close",
+            marketId: body.marketId,
+            status: reversalClose.status,
+            txHash: reversalClose.txHash,
+            explorer: reversalClose.explorer,
+            message: `[strategy ${oa}/${mp} reversal] closed opposite trade #${oppositeTrade.userTradeIndex}: ${reversalClose.message}`,
+            durationMs: Date.now() - startedAt,
+          })
+        }
+
+        const result = await openTrade(
+          signer,
+          {
+            marketId: body.marketId,
+            long: openingLong,
+            leverage: body.leverage,
+            amountUsdc: body.amountUsdc,
+            slippagePct: body.slippagePct ?? app.defaultSlippagePct,
+          },
+          webhookTradeOpts(translated, body.marketId),
+        )
+        recordEvent({
+          source: "webhook",
+          action: translated,
+          marketId: result.marketId,
+          base: result.base,
+          quote: result.quote,
+          leverage: body.leverage,
+          amountUsdc: body.amountUsdc,
+          status: result.status,
+          txHash: result.txHash,
+          explorer: result.explorer,
+          message: `[strategy ${oa}/${mp}${reversalClose ? " reversal" : ""}] ${result.message}`,
+          durationMs: Date.now() - startedAt,
+        })
+        return res.json({
+          ...result,
+          translatedFrom: { orderAction: oa, marketPosition: mp },
+          reversalClose: reversalClose ?? undefined,
+        })
+      }
+
       return res.status(400).json({ error: "unknown_action" })
     } catch (err) {
       const msg = (err as Error).message
@@ -252,11 +394,15 @@ async function main() {
           slot.lastStatus = e.status
         }
       }
+      const tunnel = getTunnelState()
+      const tunnelWebhookUrl = tunnel.url ? `${tunnel.url}/webhook` : null
       res.json({
         chain: app.chain,
         wallet: signer.wallet.address,
         evmInterface: app.cfg.evmInterface,
-        webhookUrl: app.publicWebhookUrl ?? `http://${app.bind}:${app.port}/webhook`,
+        webhookUrl: tunnelWebhookUrl ?? app.publicWebhookUrl ?? `http://${app.bind}:${app.port}/webhook`,
+        webhookUrlSource: tunnelWebhookUrl ? "tunnel" : app.publicWebhookUrl ? "env" : "local",
+        tunnel,
         dryRun: isDryRun(),
         killSwitch: isKilled(),
         usdcBalance: balance,
@@ -301,6 +447,18 @@ async function main() {
     if (!checkSecret(req)) return res.status(403).json({ error: "forbidden" })
     clearEvents()
     res.json({ cleared: true })
+  })
+
+  server.post("/api/tunnel/start", async (req, res) => {
+    if (!checkSecret(req)) return res.status(403).json({ error: "forbidden" })
+    const result = await startTunnel(app.port)
+    res.json({ tunnel: result })
+  })
+
+  server.post("/api/tunnel/stop", (req, res) => {
+    if (!checkSecret(req)) return res.status(403).json({ error: "forbidden" })
+    const result = stopTunnel()
+    res.json({ tunnel: result })
   })
 
   server.get("/dashboard", (_req, res) => {
