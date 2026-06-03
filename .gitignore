@@ -2,6 +2,7 @@ node_modules
 dist
 .env
 .env.local
+.env.webhook
 *.log
 events.jsonl
 .DS_Store

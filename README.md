@@ -8,7 +8,7 @@
 [![Node 22+](https://img.shields.io/badge/Node-22%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![Non-custodial](https://img.shields.io/badge/wallet-non--custodial-2ea44f)](#security--threat-model)
 
-<!-- TODO: add a dashboard screenshot or short demo GIF here -->
+![The sai-trading-bot dashboard: inputs, live pipeline status, and outputs](./docs/images/dashboard.jpg)
 
 ## What it does
 
@@ -18,6 +18,10 @@
 - Runs on plain Node — no database, no external services beyond the chain RPC and Sai's keeper.
 - Mainnet and Testnet2 supported via one env var.
 
+Trades land as perps on [sai.fun](https://sai.fun):
+
+![Sai perps trading interface](./docs/images/sai-perps.jpg)
+
 ## Quickstart
 
 Requires Node 22+ (or Bun). Fund a fresh EVM wallet with USDC on Nibiru first.
@@ -26,7 +30,7 @@ Requires Node 22+ (or Bun). Fund a fresh EVM wallet with USDC on Nibiru first.
 git clone https://github.com/REPO_OWNER/sai-trading-bot.git
 cd sai-trading-bot
 npm install
-cp env.example.txt .env
+cp .env.example .env
 # edit .env: set EITHER MNEMONIC (seed phrase) OR PRIVATE_KEY,
 # and set WEBHOOK_SECRET to a long random string
 
@@ -45,14 +49,16 @@ docker build -t sai-trading-bot .
 docker run --rm -p 3030:3030 --env-file .env sai-trading-bot
 ```
 
-### One-click
+### Hosted platforms
+
+There's no preconfigured one-click template yet. Both platforms below build from the included `Dockerfile`, so they work but need their setup steps run once and the env vars set by hand.
 
 <!-- TODO: replace REPO_OWNER with your GitHub username after publishing -->
 
-- **Railway:** [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https%3A%2F%2Fgithub.com%2FREPO_OWNER%2Fsai-trading-bot)
-- **Fly.io:** `fly launch --from https://github.com/REPO_OWNER/sai-trading-bot`
+- **Railway:** create a new project from your fork (`https://github.com/REPO_OWNER/sai-trading-bot`). Railway detects the `Dockerfile` and builds from it. Add the env vars below in the service settings before the first deploy.
+- **Fly.io:** `fly launch --from https://github.com/REPO_OWNER/sai-trading-bot` walks you through an interactive setup and builds from the `Dockerfile`. Set secrets with `fly secrets set` rather than committing a `fly.toml` with values in it.
 
-Set `MNEMONIC` (or `PRIVATE_KEY`), `WEBHOOK_SECRET`, and (recommended) `BIND=0.0.0.0` in the host's environment. Don't paste secrets into CLI flags — use the platform's secret store.
+Set `MNEMONIC` (or `PRIVATE_KEY`), `WEBHOOK_SECRET`, and (recommended) `BIND=0.0.0.0` in the host's environment. Don't paste secrets into CLI flags. Use the platform's secret store.
 
 ### Self-host with the built-in tunnel
 
@@ -107,6 +113,10 @@ Webhook URL: `http://<your-host>:3030/webhook`. Message body (JSON):
 
 Actions: `open_long`, `open_short`, `close`, `strategy`.
 
+Paste the JSON into a TradingView alert's *Message* field and point its *Webhook URL* at the bridge:
+
+![TradingView alerts carrying the webhook secret and payload](./docs/images/tradingview-alerts.jpg)
+
 For `close`, pass the trade index:
 
 ```json
@@ -114,6 +124,10 @@ For `close`, pass the trade index:
 ```
 
 ### Flexible strategy alert (one message, all signals)
+
+This works with any TradingView strategy, including the built-in ones:
+
+![TradingView built-in strategies picker](./docs/images/tradingview-strategies.jpg)
 
 Use `action: "strategy"` to route entries and exits from a single TradingView alert by passing TV's strategy variables through:
 
@@ -139,7 +153,11 @@ Translation:
 | sell        | flat           | close (the open long) |
 | buy         | flat           | close (the open short) |
 
-Set the alert *Condition* to your Pine strategy with *Order fills only*. Reversals (e.g. `sell` while long without first flattening) fire as fresh entries — wire a separate close alert if your strategy needs flip-on-signal behavior.
+Set the alert *Condition* to your Pine strategy with *Order fills only*. Reversals (e.g. `sell` while long without first flattening) fire as fresh entries; wire a separate close alert if your strategy needs flip-on-signal behavior.
+
+Each fill shows up in TradingView's log as a delivered webhook, with the matching trade in the strategy report:
+
+![TradingView strategy report and webhook delivery log](./docs/images/tradingview-webhook-log.jpg)
 
 ## Configuration
 
